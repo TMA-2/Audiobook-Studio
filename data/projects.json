@@ -1,0 +1,115 @@
+[
+  {
+    "id": "whispering-shadows",
+    "name": "The Whispering Shadows",
+    "description": "A short gothic dialogue scene demonstrating pre-configured Speakers/Roles, global performance directives, and dynamic model selection.",
+    "createdAt": "2026-06-25T23:24:09.961Z",
+    "lastModifiedAt": "2026-06-25T23:41:33.465Z",
+    "speakers": [
+      {
+        "id": "spk-zephyr",
+        "name": "Narrator (Zephyr)",
+        "isNarrator": true,
+        "voice": "Zephyr",
+        "model": "gemini-3.1-flash-tts-preview",
+        "pacing": "normal",
+        "pitch": "normal",
+        "emotion": "nominous",
+        "customInstructions": "In a sweeping, atmospheric documentary voice"
+      },
+      {
+        "id": "spk-kore",
+        "name": "Elizabeth (Kore)",
+        "isNarrator": false,
+        "voice": "Kore",
+        "model": "gemini-3.1-flash-tts-preview",
+        "pacing": "normal",
+        "pitch": "normal",
+        "emotion": "none",
+        "customInstructions": "Trembling with subtle, creeping fear, hushed voice"
+      },
+      {
+        "id": "spk-puck",
+        "name": "Arthur (Puck)",
+        "isNarrator": false,
+        "voice": "Puck",
+        "model": "gemini-3.1-flash-tts-preview",
+        "pacing": "normal",
+        "pitch": "normal",
+        "emotion": "excited",
+        "customInstructions": "Reassuring yet youthful and energetic"
+      },
+      {
+        "id": "spk-charon",
+        "name": "Stranger (Charon)",
+        "isNarrator": false,
+        "voice": "Charon",
+        "model": "gemini-3.1-flash-tts-preview",
+        "pacing": "slow",
+        "pitch": "low",
+        "emotion": "none",
+        "customInstructions": "Gentlemanly, smooth, incredibly deep, with a haunting chilling undertone"
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chap-1",
+        "projectId": "whispering-shadows",
+        "title": "Chapter 1: An Unexpected Visitor",
+        "order": 1,
+        "blocks": [
+          {
+            "id": "block-1",
+            "chapterId": "chap-1",
+            "speakerId": "spk-zephyr",
+            "text": "The wind howled outside the old manor, throwing sheets of icy rain against the leaded glass windows. Inside, the limestone fireplace had dwindled to a heap of dying embers, casting long, shivering shadows across the floor.",
+            "status": "idle",
+            "audioData": null,
+            "duration": null,
+            "errorMessage": null
+          },
+          {
+            "id": "block-2",
+            "chapterId": "chap-1",
+            "speakerId": "spk-kore",
+            "text": "Did you hear that Arthur? I swore there was someone, or some thing, tapping against the mahogany glass at the balcony.",
+            "status": "idle",
+            "audioData": null,
+            "duration": null,
+            "errorMessage": null
+          },
+          {
+            "id": "block-3",
+            "chapterId": "chap-1",
+            "speakerId": "spk-puck",
+            "text": "Elizabeth, you must calm down. It is only the birch branches caught in the gables. Look, the tea is still warm—there is nothing to fear!",
+            "status": "idle",
+            "audioData": null,
+            "duration": null,
+            "errorMessage": null
+          },
+          {
+            "id": "block-4",
+            "chapterId": "chap-1",
+            "speakerId": "spk-charon",
+            "text": "A carriage breakdown on the low cliff is a terrible fate, wouldn't you say? I must apologize for invading your cozy retreat, but your lock was quite fragile.",
+            "status": "idle",
+            "audioData": null,
+            "duration": null,
+            "errorMessage": null
+          },
+          {
+            "id": "block-5",
+            "chapterId": "chap-1",
+            "speakerId": "spk-kore",
+            "text": "Arthur, get behind me! Who are you? How did you bypass the outer iron gates?",
+            "status": "idle",
+            "audioData": null,
+            "duration": null,
+            "errorMessage": null
+          }
+        ]
+      }
+    ]
+  }
+]

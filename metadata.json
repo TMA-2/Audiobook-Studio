@@ -1,0 +1,6 @@
+{
+  "name": "Audiobook Production Studio",
+  "description": "A high-fidelity studio interface for long-form audiobook creation with multi-speaker voices, dialogue tag interpretation, emotional fine-tuning, and continuous chapter synthesis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
