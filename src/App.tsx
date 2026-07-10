@@ -1,1324 +1,1829 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
+  Play, 
+  Square, 
   Plus, 
   Trash2, 
-  ArrowUp, 
-  ArrowDown, 
-  Sparkles, 
-  BookOpen, 
-  AudioLines, 
-  FolderPlus, 
-  SlidersHorizontal, 
-  AlertCircle, 
-  CheckCircle2, 
-  KeyRound, 
-  ExternalLink,
-  BookMarked,
-  HelpCircle,
-  FileSpreadsheet,
-  Users,
-  Type,
-  FileText,
-  Cpu,
+  Settings, 
+  Users, 
+  Upload,
+  Download,
+  GripVertical,
+  SplitSquareVertical,
+  Merge,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  Mic,
+  Wand2,
+  Volume2,
   RefreshCw,
-  ArrowLeft,
-  ArrowRight
+  Loader2,
+  AlertCircle,
+  Save,
+  FolderOpen,
+  ArrowDownToLine,
+  PanelRightClose,
+  PanelRight,
+  History,
+  FileAudio,
+  Minimize2,
+  Maximize2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Project, Chapter, NarrationBlock, VoiceName, Speaker } from './types';
+import { Project, Chapter, Snippet, Speaker, AudioEncoding, Generation } from './types';
+import { generateTTS } from './services/geminiService';
+import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMChunks } from './services/audioService';
+import { generateId } from './services/idService';
+import { parseMarkdown } from './services/markdownParser';
+import { saveAudio, getAudio, deleteAudio } from './services/dbService';
+import { formatDuration, formatError, getSpeakerStyles } from './services/utils';
+import * as StateModifiers from './services/appStateModifiers';
 import WaveformPlayer from './components/WaveformPlayer';
-import ScriptImporter, { ImportedBlock } from './components/ScriptImporter';
-import VoiceCastingGuides from './components/VoiceCastingGuides';
-import ChapterTimeline from './components/ChapterTimeline';
+
+// --- Constants ---
+const GEMINI_VOICES = [
+  { id: 'Achird', name: 'Achird', gender: 'Male' },	
+  { id: 'Algenib', name: 'Algenib', gender: 'Male' },	
+  { id: 'Algieba', name: 'Algieba', gender: 'Male' },	
+  { id: 'Alnilam', name: 'Alnilam', gender: 'Male' },	
+  { id: 'Charon', name: 'Charon', gender: 'Male' },	
+  { id: 'Enceladus', name: 'Enceladus', gender: 'Male' },	
+  { id: 'Fenrir', name: 'Fenrir', gender: 'Male' },	
+  { id: 'Iapetus', name: 'Iapetus', gender: 'Male' },	
+  { id: 'Orus', name: 'Orus', gender: 'Male' },	
+  { id: 'Puck', name: 'Puck', gender: 'Male' },	
+  { id: 'Rasalgethi', name: 'Rasalgethi', gender: 'Male' },	
+  { id: 'Sadachbia', name: 'Sadachbia', gender: 'Male' },	
+  { id: 'Sadaltager', name: 'Sadaltager', gender: 'Male' },	
+  { id: 'Schedar', name: 'Schedar', gender: 'Male' },	
+  { id: 'Umbriel', name: 'Umbriel', gender: 'Male' },	
+  { id: 'Zubenelgenubi', name: 'Zubenelgenubi', gender: 'Male' },
+  { id: 'Achernar', name: 'Achernar', gender: 'Female' },	
+  { id: 'Aoede', name: 'Aoede', gender: 'Female' },	
+  { id: 'Autonoe', name: 'Autonoe', gender: 'Female' },	
+  { id: 'Callirrhoe', name: 'Callirrhoe', gender: 'Female' },	
+  { id: 'Despina', name: 'Despina', gender: 'Female' },	
+  { id: 'Erinome', name: 'Erinome', gender: 'Female' },	
+  { id: 'Gacrux', name: 'Gacrux', gender: 'Female' },	
+  { id: 'Kore', name: 'Kore', gender: 'Female' },	
+  { id: 'Laomedeia', name: 'Laomedeia', gender: 'Female' },	
+  { id: 'Leda', name: 'Leda', gender: 'Female' },	
+  { id: 'Pulcherrima', name: 'Pulcherrima', gender: 'Female' },	
+  { id: 'Sulafat', name: 'Sulafat', gender: 'Female' },	
+  { id: 'Vindemiatrix', name: 'Vindemiatrix', gender: 'Female' },	
+  { id: 'Zephyr', name: 'Zephyr', gender: 'Female' }
+];
+
+const GEMINI_MODELS = [
+  'gemini-2.5-flash-tts',
+  'gemini-2.5-pro-tts',
+  'gemini-2.5-flash-lite-preview-tts',
+  'gemini-3.1-flash-tts-preview'
+];
+
+const INITIAL_PROJECT: Project = {
+  title: 'Untitled Audiobook',
+  settings: {
+    model: GEMINI_MODELS[0],
+    encoding: 'M4A',
+    sampleRate: '24000'
+  },
+  speakers: [
+    {
+      id: generateId(),
+      order: 0,
+      name: 'Narrator',
+      voice: 'Zephyr',
+      style: 'Clear, steady pace appropriate for a romance audiobook.',
+      isNarrator: true
+    }
+  ],
+  chapters: [
+    {
+      id: generateId(),
+      order: 0,
+      title: 'Chapter 1',
+      defaultSpeakerId: null,
+      isCollapsed: false,
+      snippets: [
+        {
+          id: generateId(),
+          order: 0,
+          text: 'It was a dark and stormy night.',
+          speakerId: null,
+          status: 'idle',
+          isCollapsed: false,
+          generations: [],
+          activeGenerationId: null
+        }
+      ]
+    }
+  ]
+};
+
+//#region Global Helper Components
+function IconButton({ icon: Icon, onClick, title, className = '', disabled = false }: any) {
+  return (
+    <button 
+      onClick={(e) => { 
+        e.preventDefault();
+        e.stopPropagation(); 
+        if (onClick) onClick(e); 
+      }} 
+      title={title}
+      disabled={disabled}
+      className={`p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  );
+}
+
+function getCombinedStyleInstructions(speaker: Speaker): string {
+  if (speaker.style && speaker.style.trim()) {
+    return speaker.style.trim();
+  }
+  return '';
+}
+//#endregion
 
 export default function App() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string>('');
-  const [activeChapterId, setActiveChapterId] = useState<string>('');
-  const [highlightedBlockId, setHighlightedBlockId] = useState<string | null>(null);
-  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+  const [project, setProject] = useState<Project>(INITIAL_PROJECT);
+  const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
+  const [previewingSpeakerId, setPreviewingSpeakerId] = useState<string | null>(null);
+  
+  // Sidebar collapse states
+  const [isGenerationCollapsed, setIsGenerationCollapsed] = useState(false);
+  const [isSpeakersCollapsed, setIsSpeakersCollapsed] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
-  // Sidebar resizing and collapsibility state
-  const [sidebarWidth, setSidebarWidth] = useState<number>(288);
-  const [isSidebarVisible, setIsSidebarVisible] = useState<boolean>(true);
-  const [isResizing, setIsResizing] = useState<boolean>(false);
-  const [isLargeScreen, setIsLargeScreen] = useState<boolean>(true);
+  // Sidebar layout states
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(384);
+  const [isDragging, setIsDragging] = useState(false);
 
+  // Context-sensitive focus states
+  const [focusedSnippetId, setFocusedSnippetId] = useState<string | null>(null);
+  const [focusedChapterId, setFocusedChapterId] = useState<string | null>(null);
+
+  // Hover states for UI interaction
+
+  // Drag and drop state
+  const [draggedSnippetId, setDraggedSnippetId] = useState<string | null>(null);
+  const [draggedChapterId, setDraggedChapterId] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectInputRef = useRef<HTMLInputElement>(null);
+  const sidecarInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Auto-Save / Load ---
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [saveFlash, setSaveFlash] = useState(false);
+  const [lastSavedProjectStr, setLastSavedProjectStr] = useState<string>('');
+
+  //#region Initialization & Auto-Save
   useEffect(() => {
-    const handleResize = () => {
-      setIsLargeScreen(window.innerWidth >= 1024);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const saved = localStorage.getItem('audiobook_project_v3');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.chapters) {
+          const sanitizedChapters = parsed.chapters.map((c: Chapter) => ({
+            ...c,
+            snippets: c.snippets.map((s: Snippet) => ({
+              ...s,
+              status: s.activeGenerationId ? 'done' : 'idle'
+            }))
+          }));
+          setProject({ ...parsed, chapters: sanitizedChapters });
+          setLastSavedProjectStr(JSON.stringify({ ...parsed, chapters: sanitizedChapters }));
+        }
+      } catch (e) {
+        console.error("Failed to load auto-saved project", e);
+      }
+    }
+    setIsLoaded(true);
   }, []);
 
-  const startResizing = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  };
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const currentProjectStr = JSON.stringify(project);
+    if (currentProjectStr === lastSavedProjectStr) return;
 
+    const timer = setTimeout(() => {
+      localStorage.setItem('audiobook_project_v3', currentProjectStr);
+      setLastSavedProjectStr(currentProjectStr);
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 1000);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [project, isLoaded, lastSavedProjectStr]);
+  //#endregion
+
+  //#region Sidebar Resizing
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = Math.max(200, Math.min(480, e.clientX));
-      setSidebarWidth(newWidth);
+      if (!isDragging) return;
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth > 250 && newWidth < 800) {
+        setSidebarWidth(newWidth);
+      }
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
+      setIsDragging(false);
     };
 
-    if (isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.classList.add('cursor-col-resize', 'select-none');
+    } else {
+      document.body.classList.remove('cursor-col-resize', 'select-none');
     }
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.classList.remove('cursor-col-resize', 'select-none');
     };
-  }, [isResizing]);
-  
-  // Custom Dialog Overlay State
-  const [dialog, setDialog] = useState<{
-    isOpen: boolean;
-    type: 'alert' | 'confirm' | 'prompt';
-    title: string;
-    message: string;
-    value: string;
-    onOk: (val?: string) => void;
-    onCancel?: () => void;
-  } | null>(null);
+  }, [isDragging]);
+  //#endregion
 
-  const showCustomAlert = (title: string, message: string, onOk?: () => void) => {
-    setDialog({
-      isOpen: true,
-      type: 'alert',
-      title,
-      message,
-      value: '',
-      onOk: () => {
-        setDialog(null);
-        if (onOk) onOk();
-      }
-    });
-  };
+  //#region Focused Snippet Helpers
+  const getFocusedSnippet = useCallback((): Snippet | null => {
+    if (!focusedSnippetId || !focusedChapterId) return null;
+    const chapter = project.chapters.find(c => c.id === focusedChapterId);
+    return chapter?.snippets.find(s => s.id === focusedSnippetId) || null;
+  }, [focusedSnippetId, focusedChapterId, project.chapters]);
+  //#endregion
 
-  const showCustomConfirm = (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => {
-    setDialog({
-      isOpen: true,
-      type: 'confirm',
-      title,
-      message,
-      value: '',
-      onOk: () => {
-        setDialog(null);
-        onConfirm();
-      },
-      onCancel: () => {
-        setDialog(null);
-        if (onCancel) onCancel();
-      }
-    });
-  };
-
-  const showCustomPrompt = (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => {
-    setDialog({
-      isOpen: true,
-      type: 'prompt',
-      title,
-      message,
-      value: defaultValue,
-      onOk: (val) => {
-        setDialog(null);
-        onConfirm(val || '');
-      },
-      onCancel: () => {
-        setDialog(null);
-      }
-    });
-  };
-
-  const showCustomAlertRef = React.useRef(showCustomAlert);
-  useEffect(() => {
-    showCustomAlertRef.current = showCustomAlert;
-  });
-
-  useEffect(() => {
-    window.alert = (message: string) => {
-      showCustomAlertRef.current("Notification", message);
+  //#region Project Export / Import
+  const handleExportProject = () => {
+    const exportData = {
+      projectName: project.title,
+      settings: project.settings,
+      speakers: project.speakers.map(s => ({
+        id: s.id,
+        order: s.order,
+        name: s.name,
+        voice: s.voice,
+        instructions: s.style,
+        isNarrator: s.isNarrator
+      })),
+      chapters: project.chapters.map((c, i) => ({
+        id: c.id,
+        name: c.title,
+        order: c.order,
+        globalSpeaker: c.defaultSpeakerId,
+        collapsed: c.isCollapsed,
+        content: c.snippets.map((s, j) => ({
+          id: s.id,
+          speaker: s.speakerId,
+          order: s.order,
+          collapsed: s.isCollapsed,
+          text: s.text.split('\n'),
+          generations: s.generations,
+          activeGenerationId: s.activeGenerationId
+        }))
+      }))
     };
-  }, []);
 
-  // API key configuration status indicators
-  const [apiKeyConfirmed, setApiKeyConfirmed] = useState<boolean>(true);
-  const [statusMessage, setStatusMessage] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
-
-  useEffect(() => {
-    fetchProjects();
-  }, []);
-
-  const fetchProjects = async () => {
-    try {
-      const res = await fetch("/api/projects");
-      if (res.ok) {
-        const data = (await res.json()) as Project[];
-        setProjects(data);
-        if (data.length > 0) {
-          setActiveProjectId(data[0].id);
-          if (data[0].chapters.length > 0) {
-            setActiveChapterId(data[0].chapters[0].id);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load projects from server:", err);
-      setApiKeyConfirmed(false);
-    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  // Synchronize state with backend
-  const syncWithServer = async (updatedProjects: Project[]) => {
-    setProjects(updatedProjects);
-    try {
-      await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedProjects)
-      });
-    } catch (err) {
-      console.warn("Express syncing unavailable.");
-    }
-  };
+  const handleImportProject = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  // Find active elements safely
-  const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
-  const activeChapter = activeProject?.chapters.find(c => c.id === activeChapterId) || activeProject?.chapters[0];
-
-  // Derive speakers with safe default fallback if project lacks them
-  const activeSpeakers = React.useMemo<Speaker[]>(() => {
-    if (!activeProject) return [];
-    if (activeProject.speakers && activeProject.speakers.length > 0) {
-      return activeProject.speakers;
-    }
-    // Safe default if none configured
-    return [
-      {
-        id: "spk-default-narrator",
-        name: "Narrator",
-        isNarrator: true,
-        voice: "Zephyr",
-        model: "gemini-3.1-flash-tts-preview",
-        pacing: "normal",
-        pitch: "normal",
-        emotion: "none",
-        customInstructions: "Consistently warm, steady and comforting tone"
-      }
-    ];
-  }, [activeProject]);
-
-  // Global Project Operations
-  const handleCreateProject = () => {
-    showCustomPrompt(
-      "Create Narration Project",
-      "Enter the title for your new audiobook workbook:",
-      "The Odyssey of Solitude",
-      (pName) => {
-        if (!pName.trim()) return;
-
-        const timestamp = Date.now();
-        const projectId = "project-" + timestamp;
-        const chapterId = "chap-" + timestamp;
-        const blockId = "block-" + timestamp;
-        const narratorId = "spk-narrator-" + timestamp;
-
-        const defaultSpeakers: Speaker[] = [
-          {
-            id: narratorId,
-            name: "Narrator",
-            isNarrator: true,
-            voice: "Zephyr",
-            model: "gemini-3.1-flash-tts-preview",
-            pacing: "normal",
-            pitch: "normal",
-            emotion: "none",
-            customInstructions: "Consistently warm, steady and comforting documentary tone"
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        
+        const importedProject: Project = {
+          title: data.projectName || 'Imported Project',
+          settings: {
+            model: data.settings?.model || GEMINI_MODELS[0],
+            encoding: data.settings?.encoding || 'M4A',
+            sampleRate: data.settings?.sampleRate || '24000'
           },
-          {
-            id: "spk-protagonist-" + timestamp,
-            name: "Protagonist",
-            isNarrator: false,
-            voice: "Puck",
-            model: "gemini-3.1-flash-tts-preview",
-            pacing: "normal",
-            pitch: "normal",
-            emotion: "none",
-            customInstructions: "Youthful and energetic protagonist"
-          }
-        ];
-
-        const newProject: Project = {
-          id: projectId,
-          name: pName,
-          description: "A gorgeous narration canvas containing customized voice layers.",
-          createdAt: new Date().toISOString(),
-          lastModifiedAt: new Date().toISOString(),
-          speakers: defaultSpeakers,
-          chapters: [
-            {
-              id: chapterId,
-              projectId: projectId,
-              title: "Chapter 1: Initial Draft",
-              order: 1,
-              blocks: [
-                {
-                  id: blockId,
-                  chapterId: chapterId,
-                  speakerId: narratorId,
-                  text: "Begin your narration project here. Enter sentences, configure speakers in the Desk, and tap Synthesize.",
-                  status: "idle",
-                  audioData: null,
-                  duration: null,
-                  errorMessage: null
-                }
-              ]
-            }
-          ]
+          speakers: (data.speakers || []).map((s: any, i: number) => ({
+            id: s.id || generateId(),
+            name: s.name || '',
+            order: s.order ?? i,
+            voice: s.voice || GEMINI_VOICES[0].id,
+            style: s.instructions || '',
+            isNarrator: !!s.isNarrator
+          })),
+          chapters: (data.chapters || []).map((c: any, i: number) => ({
+            id: c.id || generateId(),
+            title: c.name || 'Untitled Chapter',
+            order: c.order ?? i,
+            defaultSpeakerId: c.globalSpeaker || null,
+            isCollapsed: !!c.collapsed,
+            snippets: (c.content || []).map((s: any, j: number) => ({
+              id: s.id || generateId(),
+              text: Array.isArray(s.text) ? s.text.join('\n') : (s.text || ''),
+              speakerId: s.speaker || null,
+              order: s.order ?? j,
+              status: s.activeGenerationId ? 'done' : 'idle',
+              generations: s.generations || [],
+              activeGenerationId: s.activeGenerationId || null,
+              isCollapsed: !!s.collapsed
+            }))
+          }))
         };
-
-        const nextProjects = [...projects, newProject];
-        syncWithServer(nextProjects);
-        setActiveProjectId(newProject.id);
-        setActiveChapterId(newProject.chapters[0].id);
-      }
-    );
-  };
-
-  const handleDeleteProject = () => {
-    if (projects.length <= 1) {
-      showCustomAlert("Action Restricted", "At least one audio project must exist in the production deck.");
-      return;
-    }
-    showCustomConfirm(
-      "Confirm Deletion",
-      `Are you certain you wish to delete the project: "${activeProject?.name}"? All recorded audio chunks will be purged permanently.`,
-      () => {
-        const nextProjects = projects.filter(p => p.id !== activeProjectId);
-        syncWithServer(nextProjects);
-        setActiveProjectId(nextProjects[0].id);
-        setActiveChapterId(nextProjects[0].chapters[0]?.id || '');
-      }
-    );
-  };
-
-  // Global Chapter Operations
-  const handleCreateChapter = () => {
-    if (!activeProject) return;
-    showCustomPrompt(
-      "New Narration Chapter",
-      "Enter Chapter Section Title:",
-      `Chapter ${activeProject.chapters.length + 1}: The Rising Dawn`,
-      (cTitle) => {
-        if (!cTitle.trim()) return;
-
-        const timestamp = Date.now();
-        const chapterId = "chap-" + timestamp;
-        const blockId = "block-" + timestamp;
-        const firstSpeakerId = activeSpeakers[0]?.id || "spk-default-narrator";
-
-        const newChapter: Chapter = {
-          id: chapterId,
-          projectId: activeProjectId,
-          title: cTitle,
-          order: activeProject.chapters.length + 1,
-          blocks: [
-            {
-              id: blockId,
-              chapterId: chapterId,
-              speakerId: firstSpeakerId,
-              text: "A silence hung heavy in the air, awaiting the voice of the speaker.",
-              status: "idle",
-              audioData: null,
-              duration: null,
-              errorMessage: null
-            }
-          ]
-        };
-
-        const nextProjects = projects.map(p => {
-          if (p.id === activeProjectId) {
-            return {
-              ...p,
-              chapters: [...p.chapters, newChapter],
-              lastModifiedAt: new Date().toISOString()
-            };
-          }
-          return p;
-        });
-
-        syncWithServer(nextProjects);
-        setActiveChapterId(newChapter.id);
-      }
-    );
-  };
-
-  const handleDeleteChapter = (cId: string) => {
-    if (activeProject.chapters.length <= 1) {
-      showCustomAlert("Action Restricted", "An audiobook requires at least one narrative chapter.");
-      return;
-    }
-    showCustomConfirm(
-      "Confirm Deletion",
-      "Are you sure you wish to delete this chapter? This will permanently erase all child blocks and audio voice logs.",
-      () => {
-        const nextProjects = projects.map(p => {
-          if (p.id === activeProjectId) {
-            const nextChaps = p.chapters.filter(c => c.id !== cId);
-            return { ...p, chapters: nextChaps };
-          }
-          return p;
-        });
-
-        syncWithServer(nextProjects);
         
-        // Pick first chapter
-        const currentProj = nextProjects.find(p => p.id === activeProjectId);
-        if (currentProj && currentProj.chapters.length > 0) {
-          setActiveChapterId(currentProj.chapters[0].id);
+        setProject(importedProject);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse project file. Ensure it matches the correct JSON schema.");
+      }
+    };
+    reader.readAsText(file);
+    if (projectInputRef.current) projectInputRef.current.value = '';
+  };
+  //#endregion
+
+  //#region Sidecar Export / Import
+  const handleExportSidecar = async () => {
+    const generationsList: any[] = [];
+
+    for (const chapter of project.chapters) {
+      for (const snippet of chapter.snippets) {
+        for (const gen of snippet.generations) {
+          const audio = await getAudio(gen.id);
+          if (audio) {
+            generationsList.push({
+              id: gen.id,
+              snippetId: gen.snippetId,
+              speakerId: gen.speakerId,
+              timestamp: gen.timestamp,
+              model: gen.model,
+              text: gen.text,
+              audioMimeType: gen.audioMimeType,
+              duration: gen.duration,
+              data: audio.base64Data
+            });
+          }
         }
       }
-    );
-  };
+    }
 
-  // Blocks CRUD Operation inside chapters
-  const handleAddBlock = () => {
-    if (!activeChapter) return;
-    const defaultSpeakerId = activeChapter.blocks[activeChapter.blocks.length - 1]?.speakerId || activeSpeakers[0]?.id || 'spk-default-narrator';
-    
-    const newBlock: NarrationBlock = {
-      id: "block-" + Date.now(),
-      chapterId: activeChapterId,
-      speakerId: defaultSpeakerId,
-      text: "",
-      status: "idle",
-      audioData: null,
-      duration: null,
-      errorMessage: null
+    const sidecarData = {
+      projectName: project.title,
+      lastUpdate: new Date().toISOString(),
+      generations: generationsList
     };
 
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const nextChaps = p.chapters.map(c => {
-          if (c.id === activeChapterId) {
-            return { ...c, blocks: [...c.blocks, newBlock] };
-          }
-          return c;
-        });
-        return { ...p, chapters: nextChaps };
-      }
-      return p;
-    });
-
-    syncWithServer(nextProjects);
+    const blob = new Blob([JSON.stringify(sidecarData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.audio.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const handleUpdateBlockField = (blockId: string, field: keyof NarrationBlock, value: any) => {
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const nextChaps = p.chapters.map(c => {
-          if (c.id === activeChapterId) {
-            const nextBlks = c.blocks.map(b => {
-              if (b.id === blockId) {
-                // If speaker changes, invalidate synthesized status so they know to regenerate
-                const invalidatedFields: (keyof NarrationBlock)[] = ['speakerId'];
-                let statusUpdate = b.status;
-                let audioDataUpdate = b.audioData;
-                
-                if (invalidatedFields.includes(field) && b.status === 'success') {
-                  statusUpdate = 'idle';
-                  audioDataUpdate = null;
+  const handleImportSidecar = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (!data.generations || !Array.isArray(data.generations)) {
+          throw new Error("Invalid sidecar format: missing generations array.");
+        }
+
+        let importedCount = 0;
+        for (const gen of data.generations) {
+          if (gen.id && gen.data) {
+            await saveAudio(gen.id, gen.data, gen.audioMimeType || 'audio/wav', gen.duration);
+            importedCount++;
+          }
+        }
+
+        setProject(prev => {
+          const updatedChapters = prev.chapters.map(chapter => {
+            return {
+              ...chapter,
+              snippets: chapter.snippets.map(snippet => {
+                const sidecarGensForSnippet = data.generations.filter((g: any) => g.snippetId === snippet.id);
+                if (sidecarGensForSnippet.length === 0) return snippet;
+
+                const existingGenIds = new Set(snippet.generations.map(g => g.id));
+                const gensToAdd: Generation[] = [];
+
+                for (const sg of sidecarGensForSnippet) {
+                  if (!existingGenIds.has(sg.id)) {
+                    gensToAdd.push({
+                      id: sg.id,
+                      snippetId: sg.snippetId,
+                      speakerId: sg.speakerId,
+                      timestamp: sg.timestamp,
+                      model: sg.model,
+                      text: sg.text,
+                      audioMimeType: sg.audioMimeType,
+                      duration: sg.duration
+                    });
+                  }
                 }
 
-                return { ...b, [field]: value, status: statusUpdate, audioData: audioDataUpdate };
-              }
-              return b;
-            });
-            return { ...c, blocks: nextBlks };
-          }
-          return c;
-        });
-        return { ...p, chapters: nextChaps };
-      }
-      return p;
-    });
+                const mergedGenerations = [...snippet.generations, ...gensToAdd];
+                mergedGenerations.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                const activeGenerationId = snippet.activeGenerationId || (mergedGenerations.length > 0 ? mergedGenerations[0].id : null);
 
-    syncWithServer(nextProjects);
-  };
-
-  const handleDeleteBlock = (blockId: string) => {
-    if (activeChapter.blocks.length <= 1) {
-      alert("Your chapter requires at least one structural paragraph.");
-      return;
-    }
-
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const nextChaps = p.chapters.map(c => {
-          if (c.id === activeChapterId) {
-            return { ...c, blocks: c.blocks.filter(b => b.id !== blockId) };
-          }
-          return c;
-        });
-        return { ...p, chapters: nextChaps };
-      }
-      return p;
-    });
-
-    syncWithServer(nextProjects);
-  };
-
-  const handleMoveBlock = (index: number, direction: 'up' | 'down') => {
-    if (!activeChapter) return;
-    const blocksCopy = [...activeChapter.blocks];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-
-    if (targetIndex < 0 || targetIndex >= blocksCopy.length) return;
-
-    // Swap
-    const temp = blocksCopy[index];
-    blocksCopy[index] = blocksCopy[targetIndex];
-    blocksCopy[targetIndex] = temp;
-
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const nextChaps = p.chapters.map(c => {
-          if (c.id === activeChapterId) {
-            return { ...c, blocks: blocksCopy };
-          }
-          return c;
-        });
-        return { ...p, chapters: nextChaps };
-      }
-      return p;
-    });
-
-    syncWithServer(nextProjects);
-  };
-
-  // Speakers modifiers inside project
-  const handleUpdateSpeakers = (updatedSpeakers: Speaker[]) => {
-    // Determine if any speaker changed in a way that invalidates audio
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const changedSpeakerIds = updatedSpeakers.filter(nextS => {
-          const prevS = p.speakers?.find(s => s.id === nextS.id);
-          if (!prevS) return false;
-          return prevS.voice !== nextS.voice ||
-                 prevS.model !== nextS.model ||
-                 prevS.pacing !== nextS.pacing ||
-                 prevS.pitch !== nextS.pitch ||
-                 prevS.emotion !== nextS.emotion ||
-                 prevS.customInstructions !== nextS.customInstructions;
-        }).map(s => s.id);
-
-        const nextChaps = p.chapters.map(c => {
-          const nextBlks = c.blocks.map(b => {
-            if (changedSpeakerIds.includes(b.speakerId) && b.status === 'success') {
-              return { ...b, status: 'idle' as const, audioData: null };
-            }
-            return b;
+                return {
+                  ...snippet,
+                  generations: mergedGenerations,
+                  activeGenerationId,
+                  status: mergedGenerations.length > 0 ? 'done' : 'idle'
+                };
+              })
+            };
           });
-          return { ...c, blocks: nextBlks };
+
+          return { ...prev, chapters: updatedChapters };
         });
 
-        return {
-          ...p,
-          speakers: updatedSpeakers,
-          chapters: nextChaps,
-          lastModifiedAt: new Date().toISOString()
-        };
+        alert(`Successfully imported and restored ${importedCount} audio generations from sidecar file!`);
+      } catch (err: any) {
+        console.error(err);
+        alert(`Failed to parse sidecar file: ${err.message || String(err)}`);
       }
-      return p;
-    });
-
-    syncWithServer(nextProjects);
+    };
+    reader.readAsText(file);
+    if (sidecarInputRef.current) sidecarInputRef.current.value = '';
   };
+  //#endregion
 
-  // Synthesize Trigger
-  const handleSynthesizeBlock = async (block: NarrationBlock) => {
-    if (!block.text.trim()) {
-      alert("Cannot synthesize transcription. Text field is empty.");
+  //#region Audio Playback Logic
+  const handleStopAudio = useCallback(() => {
+    stopAudio();
+    setActivePlayingId(null);
+    setPreviewingSpeakerId(null);
+  }, []);
+
+  const playSnippetAudioById = useCallback(async (generationId: string) => {
+    handleStopAudio();
+    setActivePlayingId(generationId);
+    const audio = await getAudio(generationId);
+    if (audio) {
+      playAudio(audio.base64Data, audio.mimeType, () => setActivePlayingId(null));
+    } else {
+      setActivePlayingId(null);
+      alert("Audio data not found in local database. Please regenerate.");
+    }
+  }, [handleStopAudio]);
+
+  const playFromSnippetById = useCallback(async (chapterId: string, startSnippetId: string) => {
+    handleStopAudio();
+    const chapter = project.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    const startIndex = chapter.snippets.findIndex(s => s.id === startSnippetId);
+    if (startIndex === -1) return;
+
+    const snippetsToPlay = chapter.snippets.slice(startIndex).filter(s => s.activeGenerationId);
+    if (snippetsToPlay.length === 0) return;
+
+    let currentIndex = 0;
+
+    const playNext = async () => {
+      if (currentIndex >= snippetsToPlay.length) {
+        setActivePlayingId(null);
+        return;
+      }
+      
+      const snippet = snippetsToPlay[currentIndex];
+      if (snippet.activeGenerationId) {
+        setActivePlayingId(snippet.id);
+        const audio = await getAudio(snippet.activeGenerationId);
+        if (audio) {
+          playAudio(audio.base64Data, audio.mimeType, () => {
+            currentIndex++;
+            playNext();
+          });
+        } else {
+          currentIndex++;
+          playNext();
+        }
+      } else {
+        currentIndex++;
+        playNext();
+      }
+    };
+
+    playNext();
+  }, [project, handleStopAudio]);
+
+  const playSnippetAudio = useCallback((snippet: Snippet) => {
+    if (!snippet.activeGenerationId) return;
+    playSnippetAudioById(snippet.activeGenerationId);
+  }, [playSnippetAudioById]);
+
+  const handleExportSnippetAudio = useCallback(async (chapterId: string, snippetId: string) => {
+    const cIndex = project.chapters.findIndex(c => c.id === chapterId);
+    const chapter = project.chapters[cIndex];
+    if (!chapter) return;
+    
+    const sIndex = chapter.snippets.findIndex(s => s.id === snippetId);
+    const snippet = chapter.snippets[sIndex];
+    if (!snippet || !snippet.activeGenerationId) return;
+
+    const audio = await getAudio(snippet.activeGenerationId);
+    if (!audio) {
+      alert("Audio data not found in local database. Please regenerate.");
       return;
     }
 
-    // Set status to generating
-    handleUpdateBlockField(block.id, 'status', 'generating');
-    handleUpdateBlockField(block.id, 'errorMessage', null);
+    const sanitize = (str: string) => str.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').toLowerCase();
+    const pad = (num: number) => String(num).padStart(2, '0');
+    
+    const pName = sanitize(project.title) || 'project';
+    const cName = sanitize(chapter.title) || 'chapter';
+    
+    const binaryString = atob(audio.base64Data);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const sampleRate = parseInt(project.settings.sampleRate) || 24000;
+    const blob = createWavBlob(bytes, sampleRate);
+    const ext = 'wav';
+
+    const filename = `${pName}-C${pad(cIndex + 1)}-${cName}-S${pad(sIndex + 1)}.${ext}`;
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [project]);
+  //#endregion
+
+  //#region Concatenation Exports
+  const handleExportChapterAudio = async (chapterId: string) => {
+    const chapter = project.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    const activeGens = chapter.snippets
+      .map(s => s.activeGenerationId)
+      .filter((id): id is string => id !== null);
+
+    if (activeGens.length === 0) {
+      alert("No generated audio found in this chapter.");
+      return;
+    }
 
     try {
-      const resolvedSpeaker = activeSpeakers.find(s => s.id === block.speakerId) || activeSpeakers[0];
-
-      const res = await fetch("/api/tts/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: block.text,
-          speaker: resolvedSpeaker.voice,
-          pacing: resolvedSpeaker.pacing,
-          pitch: resolvedSpeaker.pitch,
-          emotion: resolvedSpeaker.emotion,
-          customInstructions: resolvedSpeaker.customInstructions,
-          model: resolvedSpeaker.model
-        })
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "The synthesize engine reported an internal error.");
-      }
-
-      const data = await res.json();
-      if (data.audioData) {
-        // Compute estimated duration based on raw bytes
-        const binary = window.atob(data.audioData);
-        const estimatedDuration = (binary.length / 2) / 24000; // 16-bit PCM mono 24kHz
-
-        const nextProjects = projects.map(p => {
-          if (p.id === activeProjectId) {
-            const nextChaps = p.chapters.map(c => {
-              if (c.id === activeChapterId) {
-                const nextBlks = c.blocks.map(b => {
-                  if (b.id === block.id) {
-                    return {
-                      ...b,
-                      status: 'success' as const,
-                      audioData: data.audioData,
-                      duration: estimatedDuration,
-                      errorMessage: null,
-                      fallback: data.fallback
-                    };
-                  }
-                  return b;
-                });
-                return { ...c, blocks: nextBlks };
-              }
-              return c;
-            });
-            return { ...p, chapters: nextChaps };
-          }
-          return p;
-        });
-
-        syncWithServer(nextProjects);
-      } else {
-        throw new Error("Missing synthesized audio block returned from the backend.");
-      }
-
-    } catch (err: any) {
-      console.error("Synthesize breakdown:", err);
-      
-      const nextProjects = projects.map(p => {
-        if (p.id === activeProjectId) {
-          const nextChaps = p.chapters.map(c => {
-            if (c.id === activeChapterId) {
-              const nextBlks = c.blocks.map(b => {
-                if (b.id === block.id) {
-                  return {
-                    ...b,
-                    status: 'error' as const,
-                    audioData: null,
-                    duration: null,
-                    errorMessage: err.message || "Synthesize disconnected. Verify API configuration."
-                  };
-                }
-                return b;
-              });
-              return { ...c, blocks: nextBlks };
-            }
-            return c;
-          });
-          return { ...p, chapters: nextChaps };
+      const base64Chunks: string[] = [];
+      for (const genId of activeGens) {
+        const audio = await getAudio(genId);
+        if (audio) {
+          base64Chunks.push(audio.base64Data);
         }
-        return p;
-      });
+      }
 
-      syncWithServer(nextProjects);
-      setApiKeyConfirmed(false);
-      
-      setStatusMessage({
-        type: 'error',
-        text: `Audio generation failed. Please add a valid GEMINI_API_KEY in Settings > Secrets to enable the live text-to-speech engine.`
-      });
+      const sampleRate = parseInt(project.settings.sampleRate) || 24000;
+      const wavBlob = concatenatePCMChunks(base64Chunks, sampleRate);
+
+      const sanitize = (str: string) => str.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').toLowerCase();
+      const filename = `${sanitize(project.title)}-${sanitize(chapter.title)}.wav`;
+
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Failed to concatenate chapter audio:", e);
+      alert("Failed to export concatenated chapter audio.");
     }
   };
 
-  // Batch import complete callback
-  const handleScriptImportComplete = (imported: ImportedBlock[]) => {
-    if (!activeProject || !activeChapter) return;
+  const handleExportFullProjectAudio = async () => {
+    const activeGens: string[] = [];
+    for (const chapter of project.chapters) {
+      for (const snippet of chapter.snippets) {
+        if (snippet.activeGenerationId) {
+          activeGens.push(snippet.activeGenerationId);
+        }
+      }
+    }
 
-    let updatedSpeakers = [...activeSpeakers];
-    const voiceNames: VoiceName[] = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+    if (activeGens.length === 0) {
+      alert("No generated audio found in the entire project.");
+      return;
+    }
 
-    const finalized: NarrationBlock[] = imported.map((item, index) => {
-      // Find or create speaker matching name
-      let existing = updatedSpeakers.find(s => s.name.toLowerCase() === item.speakerName.toLowerCase());
-      if (!existing) {
-        const lowerName = item.speakerName.toLowerCase();
-        let assignedVoice: VoiceName = voiceNames[updatedSpeakers.length % voiceNames.length];
-        
-        if (lowerName.includes("kore") || lowerName.includes("girl") || lowerName.includes("woman") || lowerName.includes("female")) assignedVoice = "Kore";
-        else if (lowerName.includes("puck") || lowerName.includes("child") || lowerName.includes("boy") || lowerName.includes("young")) assignedVoice = "Puck";
-        else if (lowerName.includes("charon") || lowerName.includes("grave") || lowerName.includes("old") || lowerName.includes("man")) assignedVoice = "Charon";
-        else if (lowerName.includes("fenrir") || lowerName.includes("dark") || lowerName.includes("villain") || lowerName.includes("wolf")) assignedVoice = "Fenrir";
-        else if (lowerName.includes("zephyr") || lowerName.includes("narrator")) assignedVoice = "Zephyr";
-
-        const newSpk: Speaker = {
-          id: `spk-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
-          name: item.speakerName,
-          isNarrator: lowerName.includes("narrator") && !updatedSpeakers.some(s => s.isNarrator),
-          voice: assignedVoice,
-          model: 'gemini-3.1-flash-tts-preview',
-          pacing: item.pacing || 'normal',
-          pitch: item.pitch || 'normal',
-          emotion: item.emotion || 'none',
-          customInstructions: 'Imported via script analyzer'
-        };
-        updatedSpeakers.push(newSpk);
-        existing = newSpk;
+    try {
+      const base64Chunks: string[] = [];
+      for (const genId of activeGens) {
+        const audio = await getAudio(genId);
+        if (audio) {
+          base64Chunks.push(audio.base64Data);
+        }
       }
 
-      return {
-        id: "block-" + (Date.now() + index),
-        chapterId: activeChapterId,
-        speakerId: existing.id,
-        text: item.text,
-        status: 'idle',
-        audioData: null,
-        duration: null,
-        errorMessage: null
-      };
-    });
+      const sampleRate = parseInt(project.settings.sampleRate) || 24000;
+      const wavBlob = concatenatePCMChunks(base64Chunks, sampleRate);
 
-    const nextProjects = projects.map(p => {
-      if (p.id === activeProjectId) {
-        const nextChaps = p.chapters.map(c => {
-          if (c.id === activeChapterId) {
-            const original = c.blocks.filter(b => b.text.trim().length > 0);
-            return { ...c, blocks: [...original, ...finalized] };
-          }
-          return c;
-        });
-        return {
-          ...p,
-          chapters: nextChaps,
-          speakers: updatedSpeakers,
-          lastModifiedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    });
+      const sanitize = (str: string) => str.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').toLowerCase();
+      const filename = `${sanitize(project.title)}_full_audiobook.wav`;
 
-    syncWithServer(nextProjects);
-    
-    setStatusMessage({
-      type: 'info',
-      text: `Successfully imported ${finalized.length} narrative dialogues and configured ${updatedSpeakers.length} project roles!`
-    });
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Failed to concatenate full project audio:", e);
+      alert("Failed to export concatenated full project audio.");
+    }
   };
+  //#endregion
+
+  //#region State Modifiers (Delegated to appStateModifiers)
+  const updateProjectState = useCallback((updates: Partial<Project>) => {
+    setProject(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const updateChapterState = useCallback((chapterId: string, updates: Partial<Chapter>) => {
+    setProject(prev => StateModifiers.updateChapter(prev, chapterId, updates));
+  }, []);
+
+  const updateSnippetState = useCallback((chapterId: string, snippetId: string, updates: Partial<Snippet>) => {
+    setProject(prev => StateModifiers.updateSnippet(prev, chapterId, snippetId, updates));
+  }, []);
+
+  const addChapterState = useCallback(() => {
+    setProject(prev => StateModifiers.addChapter(prev));
+  }, []);
+
+  const moveChapterState = useCallback((index: number, direction: 'up' | 'down') => {
+    setProject(prev => StateModifiers.moveChapter(prev, index, direction));
+  }, []);
+
+  const deleteChapterState = useCallback((chapterId: string) => {
+    setProject(prev => StateModifiers.deleteChapter(prev, chapterId));
+  }, []);
+
+  const deleteSnippetState = useCallback((chapterId: string, snippetId: string) => {
+    setProject(prev => StateModifiers.deleteSnippet(prev, chapterId, snippetId));
+  }, []);
+
+  const addSnippetState = useCallback((chapterId: string, index: number) => {
+    setProject(prev => StateModifiers.addSnippet(prev, chapterId, index));
+  }, []);
+
+  const moveSnippetState = useCallback((chapterId: string, index: number, direction: 'up' | 'down') => {
+    setProject(prev => StateModifiers.moveSnippet(prev, chapterId, index, direction));
+  }, []);
+
+  const splitSnippetState = useCallback((chapterId: string, snippetId: string, cursorPosition: number) => {
+    setProject(prev => StateModifiers.splitSnippet(prev, chapterId, snippetId, cursorPosition));
+  }, []);
+
+  const joinSnippetWithNextState = useCallback((chapterId: string, snippetId: string) => {
+    setProject(prev => StateModifiers.joinSnippetWithNext(prev, chapterId, snippetId));
+  }, []);
+
+  const addSpeakerState = useCallback(() => {
+    setProject(prev => StateModifiers.addSpeaker(prev, GEMINI_VOICES));
+  }, []);
+
+  const updateSpeakerState = useCallback((speakerId: string, updates: Partial<Speaker>) => {
+    setProject(prev => StateModifiers.updateSpeaker(prev, speakerId, updates));
+  }, []);
+
+  const deleteSpeakerState = useCallback((speakerId: string) => {
+    setProject(prev => StateModifiers.deleteSpeaker(prev, speakerId));
+  }, []);
+
+  const moveSpeakerState = useCallback((index: number, direction: 'up' | 'down') => {
+    setProject(prev => StateModifiers.moveSpeaker(prev, index, direction));
+  }, []);
+
+  const toggleAllSnippetsInChapter = useCallback((chapterId: string, collapse: boolean) => {
+    setProject(prev => StateModifiers.toggleAllSnippetsInChapter(prev, chapterId, collapse));
+  }, []);
+  //#endregion
+
+  //#region Generation History and Voice Preview Handlers
+  const handleSelectGeneration = useCallback((gen: Generation) => {
+    if (!focusedChapterId || !focusedSnippetId) return;
+    updateSnippetState(focusedChapterId, focusedSnippetId, {
+      activeGenerationId: gen.id,
+      text: gen.text,
+      speakerId: gen.speakerId
+    });
+  }, [focusedChapterId, focusedSnippetId, updateSnippetState]);
+
+  const handleDeleteGeneration = useCallback(async (generationId: string) => {
+    if (!focusedChapterId || !focusedSnippetId) return;
+    try {
+      await deleteAudio(generationId);
+      setProject(prev => {
+        const updatedChapters = prev.chapters.map(c => {
+          if (c.id !== focusedChapterId) return c;
+          return {
+            ...c,
+            snippets: c.snippets.map(s => {
+              if (s.id !== focusedSnippetId) return s;
+              const nextGens = s.generations.filter(g => g.id !== generationId);
+              let nextActiveId = s.activeGenerationId;
+              if (nextActiveId === generationId) {
+                nextActiveId = nextGens.length > 0 ? nextGens[0].id : null;
+              }
+              return {
+                ...s,
+                generations: nextGens,
+                activeGenerationId: nextActiveId,
+                status: nextGens.length > 0 ? 'done' : 'idle' as any
+              };
+            })
+          };
+        });
+        return { ...prev, chapters: updatedChapters };
+      });
+    } catch (err: any) {
+      console.error("Failed to delete generation:", err);
+      alert("Failed to delete generation: " + (err.message || String(err)));
+    }
+  }, [focusedChapterId, focusedSnippetId]);
+
+  const handlePreviewVoice = useCallback(async (speaker: Speaker) => {
+    handleStopAudio();
+    setPreviewingSpeakerId(speaker.id);
+    try {
+      const previewText = `Hello! My name's ${speaker.voice} and I'll be playing the role of ${speaker.name}. The hungry purple dinosaur ate the kind, zingy fox, the jabbering crab, and the mad whale and started vending and quacking.`;
+      const combinedStyle = getCombinedStyleInstructions(speaker);
+      const { data, mimeType } = await generateTTS(
+        previewText,
+        speaker.voice,
+        combinedStyle,
+        project.settings.model
+      );
+      playAudio(data, mimeType, () => setPreviewingSpeakerId(null));
+    } catch (err: any) {
+      console.error("Failed to preview voice:", err);
+      alert("Failed to preview voice: " + (err.message || String(err)));
+      setPreviewingSpeakerId(null);
+    }
+  }, [handleStopAudio, project.settings.model]);
+  //#endregion
+
+  //#region Drag and Drop Handlers
+  const handleSnippetDragStart = (e: React.DragEvent, snippetId: string, chapterId: string) => {
+    setDraggedSnippetId(snippetId);
+    setDraggedChapterId(chapterId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSnippetDragOver = (e: React.DragEvent, targetSnippetId: string, targetChapterId: string) => {
+    e.preventDefault();
+    if (!draggedSnippetId || draggedSnippetId === targetSnippetId) return;
+  };
+
+  const handleSnippetDrop = (e: React.DragEvent, targetSnippetId: string, targetChapterId: string) => {
+    e.preventDefault();
+    if (!draggedSnippetId || !draggedChapterId) return;
+
+    setProject(prev => {
+      const sourceChapter = prev.chapters.find(c => c.id === draggedChapterId);
+      const targetChapter = prev.chapters.find(c => c.id === targetChapterId);
+      if (!sourceChapter || !targetChapter) return prev;
+
+      const sourceSnippetIndex = sourceChapter.snippets.findIndex(s => s.id === draggedSnippetId);
+      const targetSnippetIndex = targetChapter.snippets.findIndex(s => s.id === targetSnippetId);
+      if (sourceSnippetIndex === -1 || targetSnippetIndex === -1) return prev;
+
+      const snippetToMove = sourceChapter.snippets[sourceSnippetIndex];
+
+      const updatedChapters = prev.chapters.map(c => {
+        if (c.id === draggedChapterId && c.id === targetChapterId) {
+          const newSnippets = [...c.snippets];
+          newSnippets.splice(sourceSnippetIndex, 1);
+          newSnippets.splice(targetSnippetIndex, 0, snippetToMove);
+          newSnippets.forEach((s, i) => s.order = i);
+          return { ...c, snippets: newSnippets };
+        } else if (c.id === draggedChapterId) {
+          const newSnippets = c.snippets.filter(s => s.id !== draggedSnippetId);
+          newSnippets.forEach((s, i) => s.order = i);
+          return { ...c, snippets: newSnippets };
+        } else if (c.id === targetChapterId) {
+          const newSnippets = [...c.snippets];
+          newSnippets.splice(targetSnippetIndex, 0, snippetToMove);
+          newSnippets.forEach((s, i) => s.order = i);
+          return { ...c, snippets: newSnippets };
+        }
+        return c;
+      });
+
+      return { ...prev, chapters: updatedChapters };
+    });
+
+    setDraggedSnippetId(null);
+    setDraggedChapterId(null);
+  };
+  //#endregion
+
+  //#region Generation Logic (Async)
+
+  const handleGenerateSnippetAsync = async (chapterId: string, snippetId: string) => {
+    const chapter = project.chapters.find(c => c.id === chapterId);
+    const snippet = chapter?.snippets.find(s => s.id === snippetId);
+    if (!chapter || !snippet || !snippet.text.trim()) return;
+
+    const effectiveSpeakerId = snippet.speakerId || chapter.defaultSpeakerId;
+    const speaker = project.speakers.find(s => s.id === effectiveSpeakerId);
+    
+    if (!speaker) {
+      alert("Please assign a speaker to this snippet or chapter before generating.");
+      return;
+    }
+
+    updateSnippetState(chapterId, snippetId, { status: 'generating', errorMessage: undefined });
+
+    try {
+      const combinedStyle = getCombinedStyleInstructions(speaker);
+      const { data, mimeType } = await generateTTS(
+        snippet.text, 
+        speaker.voice, 
+        combinedStyle, 
+        project.settings.model
+      );
+
+      const duration = await getAudioDuration(data, mimeType);
+      const generationId = generateId();
+
+      // Save audio data to IndexedDB
+      await saveAudio(generationId, data, mimeType, duration);
+
+      const newGen: Generation = {
+        id: generationId,
+        snippetId: snippet.id,
+        speakerId: speaker.id,
+        timestamp: new Date().toISOString(),
+        model: project.settings.model,
+        text: snippet.text,
+        audioMimeType: mimeType,
+        duration: duration
+      };
+
+      setProject(prev => ({
+        ...prev,
+        chapters: prev.chapters.map(c => {
+          if (c.id !== chapterId) return c;
+          return {
+            ...c,
+            snippets: c.snippets.map(s => {
+              if (s.id !== snippetId) return s;
+              return {
+                ...s,
+                status: 'done',
+                generations: [newGen, ...s.generations],
+                activeGenerationId: generationId
+              };
+            })
+          };
+        })
+      }));
+
+    } catch (error: any) {
+      console.error("Failed to generate snippet:", error);
+      updateSnippetState(chapterId, snippetId, { status: 'error', errorMessage: formatError(error) });
+    }
+  };
+
+  const handleGenerateChapter = async (chapterId: string) => {
+    const chapter = project.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    for (const snippet of chapter.snippets) {
+      if (snippet.generations.length === 0 && snippet.text.trim()) {
+        await handleGenerateSnippetAsync(chapterId, snippet.id);
+      }
+    }
+  };
+
+  const handleGenerateAll = async () => {
+    for (const chapter of project.chapters) {
+      await handleGenerateChapter(chapter.id);
+    }
+  };
+
+  //#endregion
+
+  //#region Markdown Import
+  const handleMarkdownUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const parsedProject = parseMarkdown(text);
+      setProject(parsedProject);
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+  //#endregion
+
+  if (!isLoaded) return null;
+
+  const focusedSnippet = getFocusedSnippet();
 
   return (
-    <div className={`min-h-screen lg:h-screen bg-[#050505] text-[#D4D4D4] font-sans flex flex-col antialiased lg:overflow-hidden ${isResizing ? 'select-none cursor-col-resize' : ''}`}>
+    <div className="flex h-full w-full bg-slate-950 text-slate-300 font-sans overflow-hidden">
       
-      {/* Global Studio Header */}
-      <header className="bg-black/40 backdrop-blur-md border-b border-white/10 sticky top-0 z-40 p-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-center shadow shadow-amber-500/5">
-            <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-base font-sans font-bold tracking-tight text-white leading-tight">Cast Desk Audio Studio</h1>
-            <p className="text-[10px] font-mono text-neutral-400">Gemini-Powered Audiobook Orchestrator</p>
-          </div>
-        </div>
-
-        {/* Global actions */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-neutral-900 border border-white/10 hover:border-amber-500/40 text-neutral-300 hover:text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-            id="btn-trigger-importer"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Screenplay Import</span>
-          </button>
-
-          <a 
-            href="https://ai.google.dev/models/gemini" 
-            target="_blank" 
-            referrerPolicy="no-referrer"
-            className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 font-mono"
-          >
-            <span>Model API documentation</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </header>
-
-      {/* Main Workspace Frame */}
-      <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden relative">
+      {/* --- Main Content Area --- */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         
-        {/* Sidebar Directory list */}
-        <AnimatePresence initial={false}>
-          {isSidebarVisible && (
-            <motion.aside
-              initial={isLargeScreen ? { width: 0, opacity: 0 } : { height: 0, opacity: 0 }}
-              animate={{ 
-                width: isLargeScreen ? sidebarWidth : "100%", 
-                opacity: 1 
-              }}
-              exit={isLargeScreen ? { width: 0, opacity: 0 } : { height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              style={isLargeScreen ? { width: sidebarWidth } : {}}
-              className="w-full bg-[#080808] border-r border-white/10 flex flex-col p-4 gap-6 shrink-0 lg:overflow-y-auto relative"
+        {/* Header */}
+        <header className="min-h-[4rem] py-2 border-b border-slate-800 flex flex-wrap items-center justify-between px-4 sm:px-6 bg-slate-900/50 shrink-0 gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+            <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
+              <Mic className="w-5 h-5 text-indigo-400" />
+            </div>
+            <input 
+              type="text" 
+              value={project.title}
+              onChange={(e) => updateProjectState({ title: e.target.value })}
+              className="bg-transparent text-xl font-bold text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 rounded px-2 py-1 -ml-2 w-full max-w-md truncate"
+            />
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            
+            {/* Project File Actions */}
+            <div className="flex items-center bg-slate-800 rounded-md p-1">
+              <input 
+                type="file" 
+                accept=".json" 
+                className="hidden" 
+                ref={projectInputRef}
+                onChange={handleImportProject}
+              />
+              <button 
+                onClick={() => projectInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                title="Load Project"
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span className="hidden lg:inline">Proj.</span>
+              </button>
+              <div className="w-px h-4 bg-slate-700 mx-1"></div>
+              <button 
+                onClick={handleExportProject}
+                className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium rounded transition-all duration-1000 ease-out ${saveFlash ? 'bg-emerald-500/25 text-emerald-400 font-semibold scale-105 shadow-md shadow-emerald-500/10' : 'text-slate-300 hover:bg-slate-700'}`}
+                title="Save Project"
+              >
+                <Save className="w-4 h-4" />
+                <span className="hidden lg:inline">Proj.</span>
+              </button>
+            </div>
+
+            {/* Sidecar Actions */}
+            <div className="flex items-center bg-slate-800 rounded-md p-1">
+              <input 
+                type="file" 
+                accept=".audio.json" 
+                className="hidden" 
+                ref={sidecarInputRef}
+                onChange={handleImportSidecar}
+              />
+              <button 
+                onClick={() => sidecarInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                title="Load Audio Sidecar"
+              >
+                <FileAudio className="w-4 h-4" />
+                <span className="hidden lg:inline">Audio</span>
+              </button>
+              <div className="w-px h-4 bg-slate-700 mx-1"></div>
+              <button 
+                onClick={handleExportSidecar}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                title="Save Audio Sidecar"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden lg:inline">Audio</span>
+              </button>
+            </div>
+
+            <input 
+              type="file" 
+              accept=".md,.txt" 
+              className="hidden" 
+              ref={fileInputRef}
+              onChange={handleMarkdownUpload}
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
+              title="Import Markdown"
             >
-              
-              {/* Projects Select Module */}
-              <div className="flex flex-col gap-2.5">
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] uppercase font-mono tracking-widest text-neutral-500 font-bold">Audiobooks</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={handleCreateProject}
-                      className="p-1 hover:bg-white/5 text-amber-500 rounded transition-colors cursor-pointer"
-                      title="New Project"
-                      id="btn-sidebar-create"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleDeleteProject}
-                      className="p-1 hover:bg-white/5 text-neutral-500 hover:text-red-400 rounded transition-colors cursor-pointer"
-                      title="Delete active Project"
-                      id="btn-sidebar-delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+              <Upload className="w-4 h-4" />
+              <span className="hidden lg:inline">Parse</span>
+            </button>
+            <button 
+              onClick={handleGenerateAll}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-md transition-colors shadow-lg shadow-indigo-500/20"
+              title="Generate All Audio"
+            >
+              <Wand2 className="w-4 h-4" />
+              <span className="hidden lg:inline">Generate</span>
+            </button>
+
+            {/* Concatenate Full Project Audio */}
+            <button 
+              onClick={handleExportFullProjectAudio}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-md transition-colors shadow-lg shadow-emerald-500/20"
+              title="Export Concatenated Audiobook"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden lg:inline">Export</span>
+            </button>
+
+            <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
+
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className={`p-2 rounded-md transition-colors ${isSidebarOpen ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              title="Toggle Settings Sidebar"
+            >
+              {isSidebarOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRight className="w-5 h-5" />}
+            </button>
+          </div>
+        </header>
+
+        {/* Chapters Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
+          {project.chapters.map((chapter, chapterIndex) => {
+            const chapterWordCount = chapter.snippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
+            const chapterCharCount = chapter.snippets.reduce((acc, s) => acc + s.text.length, 0);
+            const chapterTokenEstimate = Math.ceil(chapterCharCount / 4) || 0;
+
+            return (
+              <div 
+                key={chapter.id} 
+                className="group/chapter bg-slate-900 rounded-xl border border-slate-800 shadow-sm overflow-hidden transition-all"
+              >
+                
+                {/* Chapter Header */}
+                <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-1">
+                    <IconButton 
+                      icon={chapter.isCollapsed ? ChevronRight : ChevronDown} 
+                      onClick={() => updateChapterState(chapter.id, { isCollapsed: !chapter.isCollapsed })} 
+                      className="!p-1 text-slate-400 hover:text-slate-200" 
+                      title={chapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
+                    />
+                    <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1">
+                      <IconButton icon={ArrowUp} onClick={() => moveChapterState(chapterIndex, 'up')} className="!p-0" disabled={chapterIndex === 0} title="Move Chapter Up" />
+                      <IconButton icon={ArrowDown} onClick={() => moveChapterState(chapterIndex, 'down')} className="!p-0" disabled={chapterIndex === project.chapters.length - 1} title="Move Chapter Down" />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={chapter.title}
+                      onChange={(e) => updateChapterState(chapter.id, { title: e.target.value })}
+                      className="bg-transparent text-lg font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/3"
+                    />
+                    <div className="flex items-center gap-2 ml-2 text-xs text-slate-500 font-medium">
+                      <span title="Words">{chapterWordCount}W</span>
+                      <span>•</span>
+                      <span title="Characters">{chapterCharCount}C</span>
+                      <span>•</span>
+                      <span title="Tokens">~{chapterTokenEstimate}T</span>
+                    </div>
+                    
+                    {/* Chapter Default Speaker */}
+                    <div className="flex items-center gap-2 ml-4">
+                      <Users className="w-4 h-4 text-slate-500" />
+                      <select 
+                        value={chapter.defaultSpeakerId || ''}
+                        onChange={(e) => updateChapterState(chapter.id, { defaultSpeakerId: e.target.value || null })}
+                        className="bg-slate-950 border border-slate-700 text-sm rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-300"
+                      >
+                        <option value="">Default Speaker...</option>
+                        {project.speakers.map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Collapse/Expand All Snippets Buttons */}
+                    <div className="flex items-center gap-1 ml-4 opacity-0 group-hover/chapter:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => toggleAllSnippetsInChapter(chapter.id, true)}
+                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
+                        title="Collapse All Snippets"
+                      >
+                        <Minimize2 className="w-3 h-3" /></button>
+                      <button 
+                        onClick={() => toggleAllSnippetsInChapter(chapter.id, false)}
+                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
+                        title="Expand All Snippets"
+                      >
+                        <Maximize2 className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 opacity-0 group-hover/chapter:opacity-100 transition-opacity">
+                    <IconButton icon={Wand2} title="Generate Chapter Audio" onClick={() => handleGenerateChapter(chapter.id)} className="hover:text-indigo-400" />
+                    <IconButton icon={Play} title="Play Chapter" onClick={() => playFromSnippetById(chapter.id, chapter.snippets[0]?.id)} />
+                    <IconButton icon={Download} title="Export Concatenated Chapter Audio" onClick={() => handleExportChapterAudio(chapter.id)} className="hover:text-emerald-400" />
+                    <IconButton icon={Trash2} title="Delete Chapter" onClick={() => deleteChapterState(chapter.id)} className="hover:text-red-400" />
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  {projects.map((proj) => (
-                    <button
-                      key={proj.id}
-                      onClick={() => {
-                        setActiveProjectId(proj.id);
-                        if (proj.chapters.length > 0) {
-                          setActiveChapterId(proj.chapters[0].id);
-                        }
-                      }}
-                      className={`text-left p-3 rounded-xl border text-xs transition-all relative cursor-pointer ${
-                        proj.id === activeProjectId
-                          ? 'bg-amber-600/10 border-amber-500/30 text-white font-semibold'
-                          : 'bg-transparent border-transparent hover:bg-white/5 text-neutral-400'
-                      }`}
-                      id={`btn-proj-${proj.id}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <BookMarked className={`w-3.5 h-3.5 shrink-0 ${proj.id === activeProjectId ? 'text-amber-500' : 'text-neutral-500'}`} />
-                        <span className="truncate flex-1">{proj.name}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Chapters Select Module */}
-              <div className="flex flex-col gap-2.5 border-t border-white/5 pt-5">
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] uppercase font-mono tracking-widest text-neutral-500 font-bold">Chapters</span>
-                  {activeProject && (
-                    <button
-                      onClick={handleCreateChapter}
-                      className="p-1 hover:bg-white/5 text-amber-500 rounded transition-colors cursor-pointer"
-                      title="New Chapter"
-                      id="btn-create-chapter"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-1.5 max-h-[300px] overflow-y-auto custom-scrollbar">
-                  {activeProject?.chapters.map((chap) => (
-                    <div
-                      key={chap.id}
-                      className={`group flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all ${
-                        chap.id === activeChapterId
-                          ? 'bg-[#121212] border-white/10 text-white font-semibold'
-                          : 'bg-transparent border-transparent hover:bg-white/5 text-neutral-450'
-                      }`}
-                    >
-                      <button
-                        onClick={() => setActiveChapterId(chap.id)}
-                        className="flex items-center gap-2 text-left truncate flex-1 cursor-pointer"
-                        id={`btn-chap-${chap.id}`}
-                      >
-                        <BookOpen className={`w-3.5 h-3.5 shrink-0 ${chap.id === activeChapterId ? 'text-amber-500' : 'text-neutral-600'}`} />
-                        <span className="truncate">{chap.title}</span>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteChapter(chap.id)}
-                        className="p-1 hover:bg-red-500/10 text-neutral-600 hover:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                        title="Remove Chapter"
-                        id={`btn-delete-chap-${chap.id}`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Collapse button at bottom */}
-              <div className="mt-auto border-t border-white/5 pt-4">
-                <button
-                  onClick={() => setIsSidebarVisible(false)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white text-[10px] font-mono tracking-wider uppercase rounded-xl border border-white/5 hover:border-white/10 transition-colors cursor-pointer"
-                  title="Collapse Sidebar"
-                  id="btn-collapse-sidebar"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>Collapse Panel</span>
-                </button>
-              </div>
-
-              {/* Draggable handle for resizability */}
-              {isLargeScreen && (
-                <div
-                  onMouseDown={startResizing}
-                  className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-amber-500/40 active:bg-amber-500 transition-colors z-30"
-                  title="Drag to resize sidebar"
-                />
-              )}
-
-            </motion.aside>
-          )}
-        </AnimatePresence>
-
-        {/* Floating Expand Trigger when hidden */}
-        {!isSidebarVisible && (
-          <button
-            onClick={() => setIsSidebarVisible(true)}
-            className="fixed left-5 bottom-5 z-40 w-10 h-10 bg-amber-600 hover:bg-amber-500 text-black rounded-xl shadow-lg shadow-black/80 flex items-center justify-center cursor-pointer border border-amber-500/30 transition-all hover:scale-105 active:scale-95"
-            title="Expand Sidebar"
-            id="btn-expand-sidebar"
-          >
-            <ArrowRight className="w-5 h-5 text-black" />
-          </button>
-        )}
-
-        {/* Main Work desk */}
-        <main className="flex-1 bg-[#030303] flex flex-col p-4 overflow-y-auto gap-6">
-          
-          {/* Status Indicators Banner */}
-          {statusMessage && (
-            <div className={`p-4 rounded-xl border flex items-start gap-3 transition-all animate-in slide-in-from-top-4 duration-300 ${
-              statusMessage.type === 'error' 
-                ? 'bg-red-500/10 border-red-500/20 text-red-300' 
-                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-            }`} id="status-alert-box">
-              <AlertCircle className={`w-5 h-5 mt-0.5 shrink-0 ${statusMessage.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`} />
-              <div className="text-xs">
-                {statusMessage.text}
-                <button 
-                  onClick={() => setStatusMessage(null)} 
-                  className="font-bold underline ml-2 hover:opacity-85 block sm:inline-block mt-1 sm:mt-0 cursor-pointer"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeChapter ? (
-            <div className="flex flex-col gap-6">
-              
-              {/* Active Chapter Details Card */}
-              <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="flex-1 w-full">
-                  <span className="text-[10px] font-mono tracking-widest text-amber-500 uppercase font-bold">Workspace Section</span>
-                  <input
-                    type="text"
-                    value={activeChapter.title}
-                    onChange={(e) => {
-                      const updated = projects.map(p => {
-                        if (p.id === activeProjectId) {
-                          const updatedChaps = p.chapters.map(c => {
-                            if (c.id === activeChapterId) {
-                              return { ...c, title: e.target.value };
-                            }
-                            return c;
-                          });
-                          return { ...p, chapters: updatedChaps };
-                        }
-                        return p;
-                      });
-                      syncWithServer(updated);
-                    }}
-                    className="text-lg font-sans font-semibold tracking-tight text-white border-b border-dashed border-transparent hover:border-neutral-700 focus:border-amber-500 focus:outline-none w-full pb-1 mt-1 transition-colors bg-transparent"
-                    title="Click to rename this chapter"
-                    id="chapter-rename-input"
-                  />
-                  <p className="text-xs text-neutral-500 mt-1">Change chapter labels or refine continuous speaking sections below.</p>
-                </div>
-                
-                <span className="text-xs font-mono bg-white/5 px-3 py-1.5 rounded border border-white/10 text-neutral-300 block shrink-0">
-                  Total Lines: {activeChapter.blocks.length}
-                </span>
-              </div>
-
-              {/* Character Casting & Auditions Deck */}
-              <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-4 shadow-md shadow-black/35">
-                <VoiceCastingGuides
-                  speakers={activeSpeakers}
-                  onUpdateSpeakers={handleUpdateSpeakers}
-                  apiConfigured={apiKeyConfirmed}
-                />
-              </div>
-
-              {/* Primary Narration Workspace Stack */}
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center px-1">
-                  <h3 className="font-sans font-bold text-sm text-white flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-amber-500" />
-                    <span>Narration Script Flow</span>
-                  </h3>
-                  <button
-                    onClick={handleAddBlock}
-                    className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-black font-semibold text-xs py-2 px-4 rounded transition-all cursor-pointer shadow-md shadow-amber-950/40"
-                    id="btn-add-block"
+                {/* Collapsed Summary */}
+                {chapter.isCollapsed && (
+                  <div 
+                    className="px-12 py-2 text-xs text-slate-500 italic bg-slate-900/30 cursor-pointer hover:bg-slate-800/30 transition-colors flex items-center gap-3"
+                    onClick={() => updateChapterState(chapter.id, { isCollapsed: false })}
                   >
-                    <Plus className="w-3.5 h-3.5 text-black font-bold" />
-                    <span>Add Narration Block</span>
-                  </button>
-                </div>
+                    <span>{chapter.snippets.length} snippet{chapter.snippets.length !== 1 ? 's' : ''} hidden</span>
+                    <span>•</span>
+                    <span>{chapterWordCount} words</span>
+                    <span>•</span>
+                    <span>{chapterCharCount} characters</span>
+                    <span>•</span>
+                    <span>~{chapterTokenEstimate} tokens</span>
+                  </div>
+                )}
 
-                <div className="flex flex-col gap-4.5" id="blocks-flow-container">
-                  <AnimatePresence initial={false}>
-                    {activeChapter.blocks.map((block, index) => {
-                      const isSpokenSpot = highlightedBlockId === block.id;
-                      const resolvedSpeaker = activeSpeakers.find(s => s.id === block.speakerId) || activeSpeakers[0] || {
-                        id: 'default',
-                        name: 'Narrator',
-                        voice: 'Zephyr',
-                        isNarrator: true,
-                        pacing: 'normal',
-                        pitch: 'normal',
-                        emotion: 'none'
-                      };
-
-                      const charCount = block.text.length;
-                      const wordCount = block.text.trim() ? block.text.trim().split(/\s+/).length : 0;
-                      const tokenEstimate = Math.ceil(charCount / 4) || 0;
-
-                      return (
-                        <motion.div
-                          key={block.id}
-                          initial={{ opacity: 0, y: 15 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.2 }}
-                          className={`bg-[#0A0A0A] border rounded-2xl p-4 transition-all flex flex-col gap-4 relative ${
-                            isSpokenSpot 
-                              ? 'border-amber-500 ring-2 ring-amber-500/15 shadow-md shadow-black/50' 
-                              : 'border-white/10 hover:border-white/15'
-                          }`}
-                          id={`block-card-${block.id}`}
-                        >
-                          {/* Block control strip */}
-                          <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-3">
-                            <div className="flex items-center gap-2.5">
-                              {/* Speaker Badge label */}
-                              <span className="text-[10px] uppercase font-mono tracking-wider text-neutral-500">Character Role:</span>
-                              <select
-                                value={block.speakerId}
-                                onChange={(e) => handleUpdateBlockField(block.id, 'speakerId', e.target.value)}
-                                className="font-sans font-bold text-xs text-white border bg-[#0D0D0D] border-white/10 rounded-lg px-2.5 py-1 outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                                id={`select-speaker-${block.id}`}
-                              >
-                                {activeSpeakers.map(s => (
-                                  <option key={s.id} value={s.id}>
-                                    {s.name} {s.isNarrator ? '(Narrator)' : ''}
-                                  </option>
-                                ))}
-                              </select>
-
-                              {/* Voice indicator description */}
-                              <span className="text-[10px] font-mono text-neutral-500 bg-[#0D0D0D] px-2 py-1 rounded-md border border-white/5">
-                                Base Voice: {resolvedSpeaker.voice} • {resolvedSpeaker.pacing} speed • {resolvedSpeaker.emotion !== 'none' ? `tone: ${resolvedSpeaker.emotion}` : 'neutral tone'}
-                              </span>
-                            </div>
-
-                            {/* Utility operations: Reorder & Delete */}
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => handleMoveBlock(index, 'up')}
-                                disabled={index === 0}
-                                className="p-1 hover:bg-white/5 disabled:opacity-30 rounded text-neutral-450 hover:text-white transition-colors cursor-pointer"
-                                title="Move up"
-                                id={`btn-up-${block.id}`}
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleMoveBlock(index, 'down')}
-                                disabled={index === activeChapter.blocks.length - 1}
-                                className="p-1 hover:bg-white/5 disabled:opacity-30 rounded text-neutral-450 hover:text-white transition-colors cursor-pointer"
-                                title="Move down"
-                                id={`btn-down-${block.id}`}
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-                              <div className="w-px h-4 bg-white/10 mx-1" />
-                              <button
-                                onClick={() => handleDeleteBlock(block.id)}
-                                className="p-1.5 hover:bg-red-500/10 text-neutral-400 hover:text-red-450 rounded transition-colors cursor-pointer"
-                                title="Delete this paragraph"
-                                id={`btn-del-${block.id}`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Sentence editing textfield */}
-                          <div className="flex flex-col gap-2">
-                            <textarea
-                              value={block.text}
-                              onChange={(e) => handleUpdateBlockField(block.id, 'text', e.target.value)}
-                              placeholder="Describe scene details or input dialogue words..."
-                              className="w-full min-h-[50px] font-sans font-medium text-white placeholder-neutral-650 text-sm focus:outline-none resize-none bg-transparent leading-relaxed"
-                              id={`textarea-block-${block.id}`}
-                              rows={2}
-                            />
-                          </div>
-
-                          {/* Fine-Tuning drawer and synthesizers */}
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-3 border-t border-white/5">
-                            {/* Live character, word, and token counts with tooltip description */}
-                            <div className="flex-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400 font-medium">
-                              <div className="relative group/char flex items-center gap-1.5 cursor-help py-1">
-                                <Type className="w-3.5 h-3.5 text-amber-500/80" />
-                                <span>Chars: <strong className="text-neutral-200 font-mono">{charCount}</strong></span>
-                                <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 scale-0 group-hover/char:scale-100 transition-all duration-150 bg-neutral-950 border border-white/10 text-neutral-200 text-[10px] px-2.5 py-1 rounded-lg whitespace-nowrap z-50 pointer-events-none font-mono shadow-2xl">
-                                  Total characters including spaces
-                                </span>
-                              </div>
-                              <span className="text-neutral-800">•</span>
-                              <div className="relative group/word flex items-center gap-1.5 cursor-help py-1">
-                                <FileText className="w-3.5 h-3.5 text-amber-500/80" />
-                                <span>Words: <strong className="text-neutral-200 font-mono">{wordCount}</strong></span>
-                                <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 scale-0 group-hover/word:scale-100 transition-all duration-150 bg-neutral-950 border border-white/10 text-neutral-200 text-[10px] px-2.5 py-1 rounded-lg whitespace-nowrap z-50 pointer-events-none font-mono shadow-2xl">
-                                  Total words
-                                </span>
-                              </div>
-                              <span className="text-neutral-800">•</span>
-                              <div className="relative group/token flex items-center gap-1.5 cursor-help py-1">
-                                <Cpu className="w-3.5 h-3.5 text-amber-500/80" />
-                                <span>Tokens: <strong className="text-neutral-200 font-mono">~{tokenEstimate}</strong></span>
-                                <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 scale-0 group-hover/token:scale-100 transition-all duration-150 bg-neutral-950 border border-white/10 text-neutral-200 text-[10px] px-2.5 py-1 rounded-lg whitespace-nowrap z-50 pointer-events-none font-mono shadow-2xl">
-                                  Estimated Gemini tokens (approx. 4 chars per token)
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Synthesis action bar */}
-                            <div className="flex items-center justify-end shrink-0 gap-3">
-                              {block.status === 'success' && block.audioData ? (
-                                <div className="flex items-center gap-2">
-                                  <WaveformPlayer
-                                    base64Pcm={block.audioData}
-                                    id={block.id}
-                                    isFallback={block.fallback}
-                                    text={block.text}
-                                    speaker={resolvedSpeaker.voice}
-                                    pacing={resolvedSpeaker.pacing}
-                                    pitch={resolvedSpeaker.pitch}
-                                    emotion={resolvedSpeaker.emotion}
-                                  />
-                                  <button
-                                    onClick={() => handleSynthesizeBlock(block)}
-                                    disabled={false}
-                                    className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 rounded-lg hover:text-amber-400 transition-all cursor-pointer relative group/resynth flex items-center justify-center shrink-0 disabled:opacity-40"
-                                    id={`btn-resynthesize-${block.id}`}
-                                  >
-                                    <RefreshCw className="w-4 h-4" />
-                                    <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 scale-0 group-hover/resynth:scale-100 transition-all duration-150 bg-neutral-950 border border-white/10 text-neutral-200 text-[10px] px-2.5 py-1 rounded-lg whitespace-nowrap z-50 pointer-events-none font-mono shadow-2xl">
-                                      Re-synthesize
-                                    </span>
-                                  </button>
-                                </div>
-                              ) : (
-                                <motion.button
-                                  onClick={() => handleSynthesizeBlock(block)}
-                                  disabled={block.status === 'generating'}
-                                  animate={block.status === 'generating' ? {
-                                    backgroundColor: ["#4b5563", "#b45309", "#4b5563"],
-                                  } : {}}
-                                  transition={block.status === 'generating' ? {
-                                    duration: 2,
-                                    repeat: Infinity,
-                                    ease: "easeInOut"
-                                  } : {}}
-                                  className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-80 disabled:text-neutral-200 text-black text-xs font-semibold rounded transition-all cursor-pointer shadow-md shadow-amber-950/20 active:scale-[0.98]"
-                                  id={`btn-synthesize-${block.id}`}
-                                >
-                                  {block.status === 'generating' ? (
-                                    <>
-                                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                      <span>Synthesizing...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <AudioLines className="w-3.5 h-3.5 text-black" />
-                                      <span>Synthesize</span>
-                                    </>
-                                  )}
-                                </motion.button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Print error diagnostics */}
-                          {block.status === 'error' && block.errorMessage && (
-                            <div className="flex items-start gap-1.5 bg-red-950/35 text-red-300 text-[10.5px] p-2.5 rounded border border-red-900/30">
-                              <AlertCircle className="w-3.5 h-3.5 m-0.5 text-red-500 shrink-0" />
-                              <span>{block.errorMessage}</span>
-                            </div>
-                          )}
-                        </motion.div>
-                      );
-                    })}
-                  </AnimatePresence>
-                </div>
+                {/* Snippets List */}
+                {!chapter.isCollapsed && (
+                  <div className="p-4 space-y-3">
+                    {chapter.snippets.map((snippet, snippetIndex) => (
+                      <div 
+                        key={snippet.id}
+                        draggable
+                        onDragStart={(e) => handleSnippetDragStart(e, snippet.id, chapter.id)}
+                        onDragOver={(e) => handleSnippetDragOver(e, snippet.id, chapter.id)}
+                        onDrop={(e) => handleSnippetDrop(e, snippet.id, chapter.id)}
+                      >
+                        <SnippetEditor 
+                          snippet={snippet}
+                          chapterId={chapter.id}
+                          index={snippetIndex}
+                          totalSnippets={chapter.snippets.length}
+                          speakers={project.speakers}
+                          chapterDefaultSpeakerId={chapter.defaultSpeakerId}
+                          isPlaying={activePlayingId !== null && (activePlayingId === snippet.id || activePlayingId === snippet.activeGenerationId)}
+                          isFocused={focusedSnippetId === snippet.id}
+                          onFocus={() => {
+                            setFocusedSnippetId(snippet.id);
+                            setFocusedChapterId(chapter.id);
+                          }}
+                          onUpdate={(updates) => {
+                            updateSnippetState(chapter.id, snippet.id, updates);
+                          }}
+                          onDelete={() => deleteSnippetState(chapter.id, snippet.id)}
+                          onMove={(dir) => moveSnippetState(chapter.id, snippetIndex, dir)}
+                          onSplit={(pos) => splitSnippetState(chapter.id, snippet.id, pos)}
+                          onJoinNext={() => joinSnippetWithNextState(chapter.id, snippet.id)}
+                          onAddNext={() => addSnippetState(chapter.id, snippetIndex)}
+                          onGenerate={() => handleGenerateSnippetAsync(chapter.id, snippet.id)}
+                          onPlay={() => playSnippetAudio(snippet)}
+                          onPlayFromHere={() => playFromSnippetById(chapter.id, snippet.id)}
+                          onStop={handleStopAudio}
+                          onExport={() => handleExportSnippetAudio(chapter.id, snippet.id)}
+                        />
+                      </div>
+                    ))}
+                    
+                    <button 
+                      onClick={() => addSnippetState(chapter.id, chapter.snippets.length - 1)}
+                      className="w-full py-2 border-2 border-dashed border-slate-800 rounded-lg text-slate-500 hover:text-slate-300 hover:border-slate-600 hover:bg-slate-800/30 transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Plus className="w-4 h-4" /> Add Snippet
+                    </button>
+                  </div>
+                )}
               </div>
+            );
+          })}
 
-              {/* Seamless Full Chapter Assembler */}
-              <div className="mt-4">
-                <ChapterTimeline
-                  chapter={activeChapter}
-                  speakers={activeSpeakers}
-                  onBlockSpeakHighlight={(bId) => setHighlightedBlockId(bId)}
-                />
-              </div>
-
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center p-12 bg-[#0A0A0A] rounded-2xl border border-white/10 shadow-lg text-center min-h-[340px]">
-              <BookOpen className="w-12 h-12 text-neutral-700 mb-3.5 animate-bounce" />
-              <h3 className="text-sm font-sans font-semibold text-white">No audiobook sheets active</h3>
-              <p className="text-xs text-neutral-500 max-w-sm mt-1 mb-5">Create a new narrative project or chapter on the left sidebar index to configure speech synthesizers.</p>
-              <button
-                onClick={handleCreateProject}
-                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-black font-semibold text-xs rounded transition-all cursor-pointer shadow-md shadow-amber-950/20"
-              >
-                Create Project
-              </button>
-            </div>
-          )}
-        </main>
+          <button 
+            onClick={addChapterState}
+            className="w-full py-4 border-2 border-dashed border-slate-800 rounded-xl text-slate-400 hover:text-slate-200 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all flex items-center justify-center gap-2 font-medium"
+          >
+            <Plus className="w-5 h-5" /> Add Chapter
+          </button>
+          
+          {/* Bottom padding */}
+          <div className="h-12"></div>
+        </div>
       </div>
 
-      {/* Script Screenplay Importer Modal */}
-      {isImportModalOpen && (
-        <ScriptImporter
-          onImportComplete={handleScriptImportComplete}
-          onClose={() => setIsImportModalOpen(false)}
-        />
-      )}
-
-      {/* Custom Elegant Modals replacement for alert, confirm, prompt */}
-      <AnimatePresence>
-        {dialog && dialog.isOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      {/* --- Sidebar Area --- */}
+      {isSidebarOpen && (
+        <>
+          {/* Resizer Handle */}
+          <div 
+            className="w-1.5 cursor-col-resize bg-slate-800 hover:bg-indigo-500 transition-colors z-10 shrink-0 flex items-center justify-center group"
+            onMouseDown={(e) => { e.preventDefault(); setIsDragging(true); }}
           >
-            <motion.div 
-              initial={{ scale: 0.95, y: 10 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 10 }}
-              transition={{ type: "spring", damping: 25, stiffness: 350 }}
-              className="bg-[#121212] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden"
-            >
-              {/* Decorative top gold ridge */}
-              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-amber-500 to-amber-700"></div>
+            <div className="w-0.5 h-8 bg-slate-600 group-hover:bg-indigo-300 rounded-full" />
+          </div>
+
+          {/* Sidebar Content */}
+          <div 
+            className="bg-slate-900 flex flex-col h-full shrink-0 border-l border-slate-800"
+            style={{ width: sidebarWidth }}
+          >
+            {/* Settings Tab Header */}
+            <div className="h-16 border-b border-slate-800 flex items-center px-6 bg-slate-950/50 shrink-0">
+              <h2 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-slate-400" />
+                Project Settings
+              </h2>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               
-              <h3 className="text-xs font-mono tracking-wider text-amber-500 uppercase font-semibold mb-2 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-500" />
-                <span>{dialog.title}</span>
-              </h3>
-              
-              <p className="text-xs text-neutral-300 font-sans leading-relaxed mb-5">
-                {dialog.message}
-              </p>
-              
-              {dialog.type === 'prompt' && (
-                <input
-                  type="text"
-                  value={dialog.value}
-                  onChange={(e) => setDialog(prev => prev ? { ...prev, value: e.target.value } : null)}
-                  className="w-full text-xs font-sans text-neutral-200 bg-[#0A0A0A] border border-white/10 rounded-xl px-3.5 py-2 mb-5 outline-none focus:border-amber-500/40 focus:bg-neutral-900/50"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      dialog.onOk(dialog.value);
-                    }
-                  }}
-                />
-              )}
-              
-              <div className="flex items-center justify-end gap-2.5">
-                {dialog.type !== 'alert' && (
-                  <button
-                    onClick={() => {
-                      if (dialog.onCancel) dialog.onCancel();
-                      setDialog(null);
-                    }}
-                    className="px-4 py-2 border border-white/5 hover:bg-white/5 text-neutral-400 hover:text-white rounded-xl text-xs font-semibold font-sans transition-all cursor-pointer"
+              {/* Context-Sensitive Generation History */}
+              {focusedSnippet && (
+                <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                  <button 
+                    onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                    className="w-full flex items-center justify-between p-4 bg-slate-900/50 hover:bg-slate-800/50 transition-colors"
                   >
-                    Cancel
+                    <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                      <History className="w-4 h-4 text-indigo-400" /> Generation History
+                    </h3>
+                    {isHistoryCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronUp className="w-4 h-4 text-slate-500" />}
                   </button>
-                )}
-                <button
-                  onClick={() => {
-                    dialog.onOk(dialog.value);
-                  }}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-black rounded-xl text-xs font-semibold font-sans transition-all cursor-pointer shadow-md shadow-amber-950/20"
+                  
+                  {!isHistoryCollapsed && (
+                    <div className="p-4 space-y-3 border-t border-slate-800 max-h-80 overflow-y-auto">
+                      {focusedSnippet.generations.length === 0 ? (
+                        <div className="text-center py-4 text-xs text-slate-500 italic">
+                          No generations yet for this snippet.
+                        </div>
+                      ) : (
+                        focusedSnippet.generations.map((gen) => {
+                          const isGenPlaying = activePlayingId === gen.id;
+                          const isGenActive = focusedSnippet.activeGenerationId === gen.id;
+                          return (
+                            <div 
+                              key={gen.id} 
+                              onClick={() => handleSelectGeneration(gen)}
+                              className={`p-2.5 rounded-lg border text-xs transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                isGenActive 
+                                  ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200' 
+                                  : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400'
+                              }`}
+                            >
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-slate-300">
+                                    {new Date(gen.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                  </span>
+                                  <span className="text-[10px] opacity-60">({gen.model.replace('-tts', '')})</span>
+                                </div>
+                                <div className="truncate text-[11px] italic opacity-80">"{gen.text}"</div>
+                                <div className="text-[10px] opacity-60">Duration: {formatDuration(gen.duration)}</div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isGenPlaying) handleStopAudio();
+                                    else playSnippetAudioById(gen.id);
+                                  }}
+                                  className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                >
+                                  {isGenPlaying ? <Square className="w-3.5 h-3.5 fill-current text-red-400" /> : <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />}
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteGeneration(gen.id);
+                                  }}
+                                  className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-red-400"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* Generation Settings */}
+              <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                <button 
+                  onClick={() => setIsGenerationCollapsed(!isGenerationCollapsed)}
+                  className="w-full flex items-center justify-between p-4 bg-slate-900/50 hover:bg-slate-800/50 transition-colors"
                 >
-                  {dialog.type === 'alert' ? 'OK' : 'Confirm'}
+                  <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Wand2 className="w-4 h-4 text-indigo-400" /> Generation
+                  </h3>
+                  {isGenerationCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronUp className="w-4 h-4 text-slate-500" />}
                 </button>
-              </div>
-            </motion.div>
-          </motion.div>
+                
+                {!isGenerationCollapsed && (
+                  <div className="p-4 space-y-4 border-t border-slate-800">
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-slate-500">Model</label>
+                      <select 
+                        value={project.settings.model}
+                        onChange={(e) => updateProjectState({ settings: { ...project.settings, model: e.target.value } })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                      >
+                        {GEMINI_MODELS.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs text-slate-500">Encoding</label>
+                        <select 
+                          value={project.settings.encoding}
+                          onChange={(e) => updateProjectState({ settings: { ...project.settings, encoding: e.target.value as any } })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="M4A">M4A</option>
+                          <option value="OGG_OPUS">OGG OPUS</option>
+                          <option value="MP3">MP3</option>
+                          <option value="WAV">WAV (LINEAR16)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs text-slate-500">Sample Rate</label>
+                        <select 
+                          value={project.settings.sampleRate}
+                          onChange={(e) => updateProjectState({ settings: { ...project.settings, sampleRate: e.target.value as any } })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="16000">16 kHz</option>
+                          <option value="24000">24 kHz</option>
+                          <option value="44100">44.1 kHz</option>
+                          <option value="48000">48 kHz</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Speakers Management */}
+              <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between p-4 bg-slate-900/50 border-b border-slate-800">
+                  <button 
+                    onClick={() => setIsSpeakersCollapsed(!isSpeakersCollapsed)}
+                    className="flex-1 flex items-center justify-between hover:text-slate-100 transition-colors text-left"
+                  >
+                    <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-indigo-400" /> Speakers
+                    </h3>
+                    {isSpeakersCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500 mr-2" /> : <ChevronUp className="w-4 h-4 text-slate-500 mr-2" />}
+                  </button>
+                  <button onClick={addSpeakerState} className="p-1 hover:bg-slate-700 rounded text-indigo-400 hover:text-indigo-300 transition-colors" title="Add Speaker">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {!isSpeakersCollapsed && (
+                  <div className="p-4 space-y-4">
+                    {project.speakers.map((speaker, speakerIndex) => {
+                      const speakerStyles = getSpeakerStyles(speaker.id, project.speakers);
+                      return (
+                        <div 
+                          key={speaker.id} 
+                          style={speakerStyles.customStyle}
+                          className="group/speaker border rounded-lg p-3 space-y-3 relative transition-colors"
+                        >
+                          {/* Speaker Actions */}
+                          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/speaker:opacity-100 transition-opacity">
+                            <IconButton icon={ArrowUp} onClick={() => moveSpeakerState(speakerIndex, 'up')} className="!p-1" disabled={speakerIndex === 0} title="Move Up" />
+                            <IconButton icon={ArrowDown} onClick={() => moveSpeakerState(speakerIndex, 'down')} className="!p-1" disabled={speakerIndex === project.speakers.length - 1} title="Move Down" />
+                            <div className="w-px h-3 bg-slate-700 mx-0.5"></div>
+                            <button 
+                              onClick={() => deleteSpeakerState(speaker.id)}
+                              className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+                              title="Delete Speaker"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          
+                          <div className="flex items-center gap-3 w-10/12">
+                            <input 
+                              type="text" 
+                              value={speaker.name}
+                              onChange={(e) => updateSpeakerState(speaker.id, { name: e.target.value })}
+                              placeholder="Character Name"
+                              className="bg-transparent font-medium text-slate-200 focus:outline-none focus:border-b focus:border-indigo-500 flex-1 pb-1"
+                            />
+                            <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title="Mark as Narrator">
+                              <input 
+                                type="checkbox" 
+                                checked={!!speaker.isNarrator}
+                                onChange={(e) => updateSpeakerState(speaker.id, { isNarrator: e.target.checked })}
+                                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-950 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                              />
+                              <span className="text-xs text-slate-400 font-medium">Narrator</span>
+                            </label>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <label className="text-xs text-slate-500 font-medium">Voice Model</label>
+                            <div className="flex items-center gap-2">
+                              <select 
+                                value={speaker.voice}
+                                style={speakerStyles.customControlStyle}
+                                onChange={(e) => updateSpeakerState(speaker.id, { voice: e.target.value })}
+                                className="flex-1 border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+                              >
+                                {GEMINI_VOICES
+                                .sort((a,b) => a.name.localeCompare(b.name))
+                                .map(v => (
+                                  <option key={v.id} value={v.id}>{`${v.name} ${v.gender === "Female" ? "♀" : "♂"}`}</option>
+                                ))}
+                              </select>
+                              <button 
+                                onClick={() => previewingSpeakerId === speaker.id ? handleStopAudio() : handlePreviewVoice(speaker)}
+                                className={`p-1.5 rounded border transition-colors ${
+                                  previewingSpeakerId === speaker.id 
+                                    ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400' 
+                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-500/50'
+                                }`}
+                                title="Preview Voice"
+                              >
+                                {previewingSpeakerId === speaker.id ? <Square className="w-4 h-4 fill-current" /> : <Volume2 className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+
+
+
+                          <div className="space-y-1">
+                            <label className="text-xs text-slate-500">Style / Instructions</label>
+                            <textarea 
+                              value={speaker.style}
+                              style={speakerStyles.customControlStyle}
+                              onChange={(e) => updateSpeakerState(speaker.id, { style: e.target.value })}
+                              placeholder="e.g., Whispery, excited, slow pace..."
+                              className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 resize-y min-h-[4rem] max-h-64"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {project.speakers.length === 0 && (
+                      <div className="text-center py-6 text-sm text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                        No speakers defined.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+            </div>
+          </div>
+        </>
+      )}
+      <WaveformPlayer 
+        activePlayingId={activePlayingId} 
+        project={project} 
+        onStop={handleStopAudio} 
+        isSidebarOpen={isSidebarOpen}
+        sidebarWidth={sidebarWidth}
+        onPlaySnippet={playSnippetAudioById}
+      />
+    </div>
+  );
+}
+
+// --- Sub-components ---
+
+interface SnippetEditorProps {
+  snippet: Snippet;
+  chapterId: string;
+  index: number;
+  totalSnippets: number;
+  speakers: Speaker[];
+  chapterDefaultSpeakerId: string | null;
+  isPlaying: boolean;
+  isFocused: boolean;
+  onFocus: () => void;
+  onUpdate: (updates: Partial<Snippet>) => void;
+  onDelete: () => void;
+  onMove: (direction: 'up' | 'down') => void;
+  onSplit: (cursorPosition: number) => void;
+  onJoinNext: () => void;
+  onAddNext: () => void;
+  onGenerate: () => void;
+  onPlay: () => void;
+  onPlayFromHere: () => void;
+  onStop: () => void;
+  onExport: () => void;
+}
+
+function SnippetEditor({
+  snippet,
+  index,
+  totalSnippets,
+  speakers,
+  chapterDefaultSpeakerId,
+  isPlaying,
+  isFocused,
+  onFocus,
+  onUpdate,
+  onDelete,
+  onMove,
+  onSplit,
+  onJoinNext,
+  onAddNext,
+  onGenerate,
+  onPlay,
+  onPlayFromHere,
+  onStop,
+  onExport
+}: SnippetEditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+
+  const handleSplit = () => {
+    if (textareaRef.current) {
+      const pos = textareaRef.current.selectionStart;
+      if (pos > 0 && pos < snippet.text.length) {
+        onSplit(pos);
+      }
+    }
+  };
+
+  const adjustHeight = useCallback(() => {
+    if (textareaRef.current && !snippet.isCollapsed) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [snippet.isCollapsed]);
+
+  useEffect(() => {
+    adjustHeight();
+  }, [snippet.text, snippet.isCollapsed, adjustHeight]);
+
+  useEffect(() => {
+    window.addEventListener('resize', adjustHeight);
+    return () => window.removeEventListener('resize', adjustHeight);
+  }, [adjustHeight]);
+
+  const effectiveSpeakerId = snippet.speakerId || chapterDefaultSpeakerId;
+  const effectiveSpeaker = speakers.find(s => s.id === effectiveSpeakerId);
+  const hasAudio = !!snippet.activeGenerationId;
+  const isGenerating = snippet.status === 'generating';
+
+  const wordCount = snippet.text.trim() ? snippet.text.trim().split(/\s+/).length : 0;
+  const charCount = snippet.text.length;
+  const tokenEstimate = Math.ceil(charCount / 4) || 0;
+
+  const speakerStyles = getSpeakerStyles(effectiveSpeakerId, speakers);
+  
+  const borderStyle = isFocused 
+    ? 'border-sky-500 border-2' 
+    : (effectiveSpeakerId ? 'border-transparent' : 'border-slate-800');
+
+  const inlineStyle = effectiveSpeakerId ? {
+    ...speakerStyles.customStyle,
+    ...(isHovered ? speakerStyles.customHoverStyle : {}),
+    borderWidth: isFocused ? '2px' : '1px',
+    borderColor: isFocused ? 'hsla(199, 89%, 48%, 1)' : (isHovered ? `hsla(${(220 + speakers.findIndex(s => s.id === effectiveSpeakerId) * 36) % 360}, 25%, 20%, 1)` : `hsla(${(220 + speakers.findIndex(s => s.id === effectiveSpeakerId) * 36) % 360}, 25%, 15%, 1)`),
+    transition: 'background-color 0.2s, border-color 0.2s'
+  } : {};
+
+  if (snippet.isCollapsed) {
+    return (
+      <div 
+        style={inlineStyle}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={onFocus}
+        className={`group flex items-center gap-3 p-2 rounded-lg border transition-colors ${borderStyle} ${isPlaying ? 'bg-indigo-900/20 border-indigo-500/50' : 'bg-slate-950 hover:border-slate-700'}`}
+      >
+        <IconButton icon={ChevronRight} onClick={() => onUpdate({ isCollapsed: false })} className="!p-0.5 text-slate-500" title="Expand Snippet" />
+        
+        <div 
+          className="flex-1 flex items-center gap-3 overflow-hidden cursor-pointer" 
+          onClick={() => onUpdate({ isCollapsed: false })}
+        >
+          <span 
+            style={effectiveSpeakerId ? speakerStyles.customControlStyle : {}}
+            className="text-[10px] font-medium uppercase tracking-wider bg-slate-900 px-2 py-0.5 rounded border border-slate-800 shrink-0"
+          >
+            {effectiveSpeaker?.name || 'Inherit'}
+          </span>
+          <span className="text-[10px] text-slate-500 font-medium tracking-wider shrink-0">
+            W: {wordCount} | C: {charCount} | T: ~{tokenEstimate}
+          </span>
+          <span className="text-sm text-slate-400 truncate select-none">
+            {snippet.text || <span className="text-slate-600 italic">Empty snippet</span>}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {isGenerating ? (
+            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin-slow" />
+          ) : (
+            <>
+              {isPlaying ? (
+                <IconButton icon={Square} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onStop(); }} className="text-red-400 hover:text-red-300" title="Stop" />
+              ) : (
+                <IconButton icon={Play} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onPlay(); }} disabled={!hasAudio} className={hasAudio ? "text-emerald-400 hover:text-emerald-300" : ""} title="Play" />
+              )}
+              <IconButton icon={Download} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onExport(); }} disabled={!hasAudio} className={hasAudio ? "text-blue-400 hover:text-blue-300" : ""} title="Export" />
+              <IconButton icon={hasAudio ? RefreshCw : Wand2} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} className="text-indigo-400 hover:text-indigo-300" title={hasAudio ? "Regenerate Audio" : "Generate Audio"} />
+            </>
+          )}
+          <div className="w-px h-4 bg-slate-800 mx-1"></div>
+          <IconButton icon={Trash2} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="hover:text-red-400" title="Delete snippet" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      style={inlineStyle}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={onFocus}
+      className={`group flex gap-3 p-3 rounded-lg border transition-colors ${borderStyle} ${isPlaying ? 'bg-indigo-900/20 border-indigo-500/50' : 'bg-slate-950 hover:border-slate-700'}`}
+    >
+      
+      {/* Left Action Bar */}
+      <div className="flex flex-col items-center justify-start pt-1 gap-2">
+        <div className="cursor-grab active:cursor-grabbing opacity-40 hover:opacity-100 transition-opacity">
+          <GripVertical className="w-4 h-4 text-slate-400" />
+        </div>
+        <IconButton icon={ChevronDown} onClick={() => onUpdate({ isCollapsed: true })} className="!p-0.5 text-slate-500" title="Collapse Snippet" />
+        <div className="flex flex-col items-center opacity-20 group-hover:opacity-100 transition-opacity">
+          <IconButton icon={ArrowUp} onClick={() => onMove('up')} className="!p-0" disabled={index === 0} title="Move Up" />
+          <IconButton icon={ArrowDown} onClick={() => onMove('down')} className="!p-0" disabled={index === totalSnippets - 1} title="Move Down" />
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 space-y-2">
+        
+        {/* Toolbar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <select 
+              value={snippet.speakerId || ''}
+              style={effectiveSpeakerId ? speakerStyles.customControlStyle : {}}
+              onChange={(e) => onUpdate({ speakerId: e.target.value || null })}
+              className={`text-xs rounded px-2 py-1 focus:outline-none border ${snippet.speakerId ? 'text-indigo-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+            >
+              <option value="">Inherit ({speakers.find(s => s.id === chapterDefaultSpeakerId)?.name || 'None'})</option>
+              {speakers.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            
+            {effectiveSpeaker && (
+              <span 
+                style={speakerStyles.customControlStyle}
+                className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border"
+              >
+                {effectiveSpeaker.voice}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-[10px] text-slate-500 font-medium tracking-wider">
+              W: {wordCount} | C: {charCount} | T: ~{tokenEstimate}
+            </span>
+            <div className="w-px h-4 bg-slate-800"></div>
+            <IconButton icon={SplitSquareVertical} title="Split at cursor" onClick={handleSplit} />
+            <IconButton icon={Merge} title="Join with next" onClick={onJoinNext} disabled={index === totalSnippets - 1} />
+            <div className="w-px h-4 bg-slate-800 mx-1"></div>
+            <IconButton icon={Trash2} title="Delete snippet" onClick={onDelete} className="hover:text-red-400" />
+          </div>
+        </div>
+
+        {/* Text Area */}
+        <textarea
+          ref={textareaRef}
+          value={snippet.text}
+          onChange={(e) => onUpdate({ text: e.target.value })}
+          onFocus={onFocus}
+          disabled={isPlaying || isGenerating}
+          placeholder="Enter text here..."
+          className="w-full bg-transparent text-slate-300 focus:outline-none resize-none overflow-hidden leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+          rows={1}
+        />
+
+        {/* Error Display */}
+        {snippet.status === 'error' && snippet.errorMessage && (
+          <div className="flex items-start gap-2 text-xs text-red-400 mt-2 bg-red-400/10 p-2.5 rounded border border-red-400/20 overflow-auto">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-bold block mb-0.5">Failed to Generate</span>
+              <pre className="opacity-90 whitespace-pre-wrap font-mono text-[10px]">{snippet.errorMessage}</pre>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
 
-      {/* Global Status Footer */}
-      <footer className="bg-[#050505] border-t border-white/10 px-6 py-4.5 flex justify-between items-center text-[10px] text-neutral-500 font-mono">
-        <span>Audiobook Production Workspace active</span>
-        <span>UTC Clock: 2026-06-25</span>
-      </footer>
+        {/* Bottom Actions */}
+        <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Play Button */}
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); isPlaying ? onStop() : onPlay(); }} 
+              disabled={!hasAudio && !isPlaying}
+              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                isPlaying 
+                  ? 'text-red-400 hover:text-red-300 bg-red-400/10' 
+                  : hasAudio 
+                    ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-400/10' 
+                    : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+              }`}
+            >
+              {isPlaying ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+              {isPlaying ? 'Stop' : 'Play'}
+            </button>
 
+            {/* Play From Here Button */}
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPlayFromHere(); }} 
+              disabled={!hasAudio}
+              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                hasAudio 
+                  ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-400/10' 
+                  : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+              }`}
+              title="Play from here"
+            >
+              <ArrowDownToLine className="w-3 h-3" /> Play From Here
+            </button>
+
+            {/* Generate / Regenerate Button */}
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} 
+              disabled={isGenerating}
+              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                isGenerating
+                  ? 'text-indigo-400 bg-indigo-400/10 cursor-not-allowed'
+                  : hasAudio
+                    ? 'text-slate-400 hover:text-indigo-300 bg-slate-800 hover:bg-indigo-500/20'
+                    : 'text-indigo-400 hover:text-indigo-300 bg-indigo-400/10'
+              }`}
+            >
+              {isGenerating ? <Loader2 className="w-3 h-3 animate-spin-slow" /> : (hasAudio ? <RefreshCw className="w-3 h-3" /> : <Wand2 className="w-3 h-3" />)}
+              {isGenerating ? 'Generating...' : (hasAudio ? 'Regenerate' : 'Generate Audio')}
+            </button>
+
+            {/* Export Button */}
+            <button 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onExport(); }} 
+              disabled={!hasAudio}
+              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                hasAudio 
+                  ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' 
+                  : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+              }`}
+              title="Export Audio"
+            >
+              <Download className="w-3 h-3" /> Export
+            </button>
+          </div>
+          
+          <button onClick={onAddNext} className="text-xs text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+            <Plus className="w-3 h-3" /> Add below
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

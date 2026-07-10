@@ -1,419 +1,593 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useRef, useState, useEffect } from 'react';
-import { Play, Pause, Download, Volume2, RefreshCw } from 'lucide-react';
-import { speakClientText } from '../utils/speech';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  Play, 
+  Pause, 
+  Square, 
+  Volume2, 
+  VolumeX, 
+  RotateCcw, 
+  RotateCw, 
+  Gauge, 
+  Sparkles,
+  ChevronUp,
+  ChevronDown
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Project, Snippet, Chapter, Speaker } from '../types';
+import { getAudio } from '../services/dbService';
+import { getCurrentAudio, getWaveformAmplitudes } from '../services/audioService';
+import { formatDuration } from '../services/utils';
 
 interface WaveformPlayerProps {
-  base64Pcm: string;
-  id: string;
-  onPlayStateChange?: (playing: boolean) => void;
-  isFallback?: boolean;
-  text?: string;
-  speaker?: string;
-  pacing?: 'slow' | 'normal' | 'fast';
-  pitch?: 'low' | 'normal' | 'high';
-  emotion?: string;
+  activePlayingId: string | null;
+  project: Project;
+  onStop: () => void;
+  isSidebarOpen: boolean;
+  sidebarWidth: number;
+  onPlaySnippet?: (id: string) => void;
 }
 
-// Convert base64 PCM 24000Hz or standard audio container (WAV/MP3) to standard audio Blob
-export function createWavBlobFromPcm(base64: string, sampleRate = 24000): { blob: Blob; url: string; duration: number } {
-  try {
-    const binary = window.atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    
-    // Auto-detect if this is already a complete, formatted audio file container (e.g. standard RIFF WAV or ID3 MP3)
-    const isWav = bytes.length > 12 && 
-                  bytes[0] === 82 && bytes[1] === 73 && bytes[2] === 70 && bytes[3] === 70; // 'RIFF' signature
-                  
-    const isMp3 = bytes.length > 3 && 
-                  ((bytes[0] === 73 && bytes[1] === 68 && bytes[2] === 51) || // 'ID3' signature
-                   (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0));       // MP3 frame sync bytes
-                   
-    if (isWav || isMp3) {
-      const mimeType = isWav ? 'audio/wav' : 'audio/mpeg';
-      // Compute accurate duration based on stream byte length
-      let duration = 0;
-      if (isWav) {
-        // Mono 16-bit 24kHz WAV has a standard byte rate of 48000 bytes/sec
-        duration = Math.max(0.1, (bytes.length - 44) / 48000);
-      } else {
-        // Default estimate for low bit-rate speech MP3 (around 64kbps / 8000 bytes/sec)
-        duration = Math.max(0.1, bytes.length / 8000);
-      }
-      
-      const blob = new Blob([bytes], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      return { blob, url, duration };
-    }
-    
-    // Fallback: If it is indeed raw 16-bit PCM, execute manual WAV container construction
-    const numSamples = Math.floor(bytes.length / 2);
-    // Align ArrayBuffer offset properly to 16-bit boundaries
-    const int16Samples = new Int16Array(bytes.buffer, 0, numSamples);
-    const duration = int16Samples.length / sampleRate;
+export default function WaveformPlayer({ activePlayingId, project, onStop, isSidebarOpen, sidebarWidth, onPlaySnippet }: WaveformPlayerProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isSpeedOpen, setIsSpeedOpen] = useState(false);
+  const [amplitudes, setAmplitudes] = useState<number[]>([]);
+  const [isPlayerCollapsed, setIsPlayerCollapsed] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [hoveredTime, setHoveredTime] = useState<number | null>(null);
 
-    // Create 44-byte WAV header
-    const buffer = new ArrayBuffer(44 + int16Samples.length * 2);
-    const view = new DataView(buffer);
-    
-    const writeStr = (view: DataView, offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeStr(view, 0, 'RIFF');
-    view.setUint32(4, 36 + int16Samples.length * 2, true);
-    writeStr(view, 8, 'WAVE');
-    writeStr(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // Linear PCM
-    view.setUint16(22, 1, true); // Mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true); // byte rate (24000 * 2)
-    view.setUint16(32, 2, true); // block align
-    view.setUint16(34, 16, true); // bits per sample
-    writeStr(view, 36, 'data');
-    view.setUint32(40, int16Samples.length * 2, true);
-
-    // Copy Int16 samples
-    let offset = 44;
-    for (let i = 0; i < int16Samples.length; i++, offset += 2) {
-      view.setInt16(offset, int16Samples[i], true);
-    }
-
-    const blob = new Blob([buffer], { type: 'audio/wav' });
-    const url = URL.createObjectURL(blob);
-    return { blob, url, duration };
-  } catch (error) {
-    console.error("Failed to compile WAV container:", error);
-    return { blob: new Blob([]), url: '', duration: 0 };
-  }
-}
-
-export default function WaveformPlayer({ 
-  base64Pcm, 
-  id, 
-  onPlayStateChange,
-  isFallback = false,
-  text = '',
-  speaker = 'Zephyr',
-  pacing = 'normal',
-  pitch = 'normal',
-  emotion = 'none'
-}: WaveformPlayerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const speechControllerRef = useRef<any>(null);
-  const [audioUrl, setAudioUrl] = useState<string>('');
-  const [duration, setDuration] = useState<number>(0);
-  const [currentTime, setCurrentTime] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
-  const [volume, setVolume] = useState<number>(0.85);
-  const animationRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (base64Pcm) {
-      const { url, duration: computedDuration } = createWavBlobFromPcm(base64Pcm);
-      setAudioUrl(url);
-      setDuration(computedDuration);
-
-      return () => {
-        if (url) URL.revokeObjectURL(url);
-      };
-    }
-  }, [base64Pcm]);
-
-  // Clean speaking on unmount
-  useEffect(() => {
-    return () => {
-      if (speechControllerRef.current) {
-        speechControllerRef.current.stop();
-      }
-    };
-  }, []);
-
-  // Sync isPlaying state back to parent if requested
-  useEffect(() => {
-    onPlayStateChange?.(isPlaying);
-    if (!isPlaying && speechControllerRef.current) {
-      speechControllerRef.current.stop();
-    }
-  }, [isPlaying, onPlayStateChange]);
-
-  // Audio lifecycle hooks
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [audioUrl]);
-
-  // Render static or dynamic waveform
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    // Generate bar heights based on a deterministic hash of the ID
-    const barsCount = 38;
-    const barWidth = 3;
-    const gap = 2;
-    const startX = (width - (barsCount * (barWidth + gap))) / 2;
-
-    const seedString = id + base64Pcm.substring(100, 200);
-    let hash = 0;
-    for (let j = 0; j < seedString.length; j++) {
-      hash = seedString.charCodeAt(j) + ((hash << 5) - hash);
-    }
-
-    const drawWave = () => {
-      ctx.clearRect(0, 0, width, height);
-      const activeBarIndex = (currentTime / (duration || 1)) * barsCount;
-
-      for (let i = 0; i < barsCount; i++) {
-        const x = startX + i * (barWidth + gap);
-        // Deterministic pseudo-random heights
-        const amplitudeMod = Math.sin((i * 0.15) + (hash * 0.01)) * 0.4 + 0.6;
-        const heightMultiplier = (hash % (i + 5)) / (i + 5);
-        const barHeight = Math.max(4, (heightMultiplier * height * 0.7 + height * 0.15) * amplitudeMod);
-
-        const isActive = i <= activeBarIndex;
-        const isCurrentRange = isPlaying && Math.abs(i - activeBarIndex) < 1.2;
-
-        if (isCurrentRange) {
-          // Bouncing animate effect for playing spot
-          const bounce = Math.sin(Date.now() * 0.015) * 3;
-          ctx.fillStyle = '#f59e0b'; // amber-500 active bounce
-          ctx.fillRect(x, (height - (barHeight + bounce)) / 2, barWidth, barHeight + bounce);
-        } else if (isActive) {
-          ctx.fillStyle = '#b45309'; // warm deep gold played
-          ctx.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
-        } else {
-          ctx.fillStyle = '#262626'; // dark neutral-800 unplayed
-          ctx.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
+  // Helper to find the first active generation ID in the project
+  const findFirstActiveGenerationId = useCallback(() => {
+    for (const chapter of project.chapters) {
+      for (const snippet of chapter.snippets) {
+        if (snippet.activeGenerationId) {
+          return snippet.activeGenerationId;
         }
       }
+    }
+    return null;
+  }, [project.chapters]);
 
-      if (isPlaying) {
-        animationRef.current = requestAnimationFrame(drawWave);
+  const [lastActiveId, setLastActiveId] = useState<string | null>(() => findFirstActiveGenerationId());
+
+  useEffect(() => {
+    if (activePlayingId) {
+      setLastActiveId(activePlayingId);
+    } else if (!lastActiveId) {
+      const firstId = findFirstActiveGenerationId();
+      if (firstId) {
+        setLastActiveId(firstId);
       }
-    };
+    }
+  }, [activePlayingId, findFirstActiveGenerationId, lastActiveId]);
 
-    drawWave();
+  const effectivePlayingId = activePlayingId || lastActiveId;
 
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, [id, base64Pcm, isPlaying, currentTime, duration]);
+  // Find playing context details (Snippet, Chapter, Speaker)
+  let playingSnippet: Snippet | null = null;
+  let playingChapter: Chapter | null = null;
+  let playingSpeaker: Speaker | null = null;
 
-  const togglePlay = () => {
-    if (isFallback && text) {
-      if (isPlaying) {
-        if (speechControllerRef.current) {
-          speechControllerRef.current.stop();
+  if (effectivePlayingId) {
+    for (const chapter of project.chapters) {
+      for (const snippet of chapter.snippets) {
+        // Match either the active generation ID or the snippet ID
+        if (snippet.activeGenerationId === effectivePlayingId || snippet.id === effectivePlayingId || snippet.generations.some(g => g.id === effectivePlayingId)) {
+          playingSnippet = snippet;
+          playingChapter = chapter;
+          const speakerId = snippet.speakerId || chapter.defaultSpeakerId;
+          playingSpeaker = project.speakers.find(s => s.id === speakerId) || null;
+          break;
         }
-        setIsPlaying(false);
-        setCurrentTime(0);
-      } else {
-        const controls = speakClientText(
-          text,
-          (speaker as any) || 'Zephyr',
-          pacing || 'normal',
-          pitch || 'normal',
-          (charIndex) => {
-            if (text && duration > 0) {
-              const fraction = charIndex / text.length;
-              setCurrentTime(fraction * duration);
-            }
-          },
-          () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-          },
-          (err) => {
-            console.error("Local client speech failed, falling back to local generated wave file.", err);
-            // Audio tag fallback
-            const audio = audioRef.current;
-            if (audio) {
-              audio.play().catch(e => console.error("PCM playback failed:", e));
-              setIsPlaying(true);
-            }
-          }
-        );
-        speechControllerRef.current = controls;
-        setIsPlaying(true);
       }
+      if (playingSnippet) break;
+    }
+  }
+
+  // Determine active generation text and duration
+  const activeGen = playingSnippet?.generations.find(g => g.id === effectivePlayingId) || 
+                    (playingSnippet?.activeGenerationId ? playingSnippet.generations.find(g => g.id === playingSnippet.activeGenerationId) : null);
+
+  const activeText = activeGen?.text || playingSnippet?.text || '';
+
+  // Fetch real audio PCM binary and calculate true waveform amplitudes
+  useEffect(() => {
+    if (!effectivePlayingId) {
+      setAmplitudes([]);
       return;
     }
 
-    const audio = audioRef.current;
-    if (!audio) return;
+    async function loadWaveform() {
+      setIsLoadingAudio(true);
+      try {
+        const audioData = await getAudio(effectivePlayingId!);
+        if (audioData?.base64Data) {
+          const peaks = getWaveformAmplitudes(audioData.base64Data, 100);
+          setAmplitudes(peaks);
+        } else {
+          // If no active generation found directly, check by snippet ID
+          if (playingSnippet?.activeGenerationId) {
+            const activeAudio = await getAudio(playingSnippet.activeGenerationId);
+            if (activeAudio?.base64Data) {
+              const peaks = getWaveformAmplitudes(activeAudio.base64Data, 100);
+              setAmplitudes(peaks);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to generate waveform visual data", err);
+        // Fallback: Generate generic smooth landscape wave
+        const fallbackPeaks = Array.from({ length: 100 }, (_, i) => {
+          return 0.15 + 0.35 * Math.sin(i * 0.1) + 0.1 * Math.sin(i * 0.5) + Math.random() * 0.1;
+        });
+        setAmplitudes(fallbackPeaks);
+      } finally {
+        setIsLoadingAudio(false);
+      }
+    }
 
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      audio.play().catch(err => console.error("Playback failed:", err));
-      setIsPlaying(true);
+    loadWaveform();
+  }, [effectivePlayingId, playingSnippet]);
+
+  // Handle active audio object synchronization and playback events
+  useEffect(() => {
+    let intervalId: any;
+
+    const syncAudioElement = () => {
+      const activeAudio = getCurrentAudio();
+      audioRef.current = activeAudio;
+
+      if (activeAudio) {
+        setIsPlaying(!activeAudio.paused);
+        setCurrentTime(activeAudio.currentTime);
+        setDuration(activeAudio.duration || 0);
+        setVolume(activeAudio.volume);
+        setIsMuted(activeAudio.muted);
+        setPlaybackSpeed(activeAudio.playbackRate);
+
+        // Bind update handlers
+        const handleTimeUpdate = () => {
+          setCurrentTime(activeAudio.currentTime);
+          setDuration(activeAudio.duration || 0);
+        };
+
+        const handlePlay = () => setIsPlaying(true);
+        const handlePause = () => setIsPlaying(false);
+        const handleEnded = () => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        };
+
+        activeAudio.addEventListener('timeupdate', handleTimeUpdate);
+        activeAudio.addEventListener('play', handlePlay);
+        activeAudio.addEventListener('pause', handlePause);
+        activeAudio.addEventListener('ended', handleEnded);
+
+        return () => {
+          activeAudio.removeEventListener('timeupdate', handleTimeUpdate);
+          activeAudio.removeEventListener('play', handlePlay);
+          activeAudio.removeEventListener('pause', handlePause);
+          activeAudio.removeEventListener('ended', handleEnded);
+        };
+      }
+    };
+
+    // Poll a few times since audio loading is asynchronous
+    syncAudioElement();
+    intervalId = setInterval(syncAudioElement, 250);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [activePlayingId]);
+
+  // Action methods
+  const togglePlayPause = () => {
+    const audio = audioRef.current;
+    if (audio) {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        audio.play().catch(err => console.error("Play aborted", err));
+        setIsPlaying(true);
+      }
+    } else if (effectivePlayingId && onPlaySnippet) {
+      onPlaySnippet(effectivePlayingId);
     }
   };
 
-  const handleScrub = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    const audio = audioRef.current;
-    if (!canvas || !audio || duration === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = clickX / rect.width;
-    const newTime = percentage * duration;
-    
-    audio.currentTime = newTime;
-    setCurrentTime(newTime);
-  };
-
-  const handleSpeedChange = () => {
+  const skipTime = (amount: number) => {
     const audio = audioRef.current;
     if (!audio) return;
-    const rates = [0.8, 1.0, 1.25, 1.5, 2.0];
-    const currentIndex = rates.indexOf(playbackRate);
-    const nextIndex = (currentIndex + 1) % rates.length;
-    const nextRate = rates[nextIndex];
-    
-    audio.playbackRate = nextRate;
-    setPlaybackRate(nextRate);
+    audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + amount));
+    setCurrentTime(audio.currentTime);
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = parseFloat(e.target.value);
-    setVolume(v);
-    if (audioRef.current) {
-      audioRef.current.volume = v;
+    const audio = audioRef.current;
+    const value = parseFloat(e.target.value);
+    setVolume(value);
+    if (audio) {
+      audio.volume = value;
+      audio.muted = value === 0;
+      setIsMuted(value === 0);
     }
   };
 
-  const formatTime = (time: number) => {
-    if (isNaN(time)) return '0:00';
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const toggleMute = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    audio.muted = nextMuted;
   };
 
+  const changeSpeed = (speed: number) => {
+    const audio = audioRef.current;
+    setPlaybackSpeed(speed);
+    setIsSpeedOpen(false);
+    if (audio) {
+      audio.playbackRate = speed;
+    }
+  };
+
+  // Seek audio upon dragging or clicking waveform bars
+  const handleSeek = (index: number) => {
+    const audio = audioRef.current;
+    if (!audio || amplitudes.length === 0) return;
+    
+    const calculatedDuration = audio.duration || duration || 0;
+    if (calculatedDuration === 0) return;
+
+    const ratio = index / amplitudes.length;
+    audio.currentTime = ratio * calculatedDuration;
+    setCurrentTime(audio.currentTime);
+  };
+
+  const handleWaveformClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, x / rect.width));
+    const calculatedDuration = audio.duration || duration || 0;
+    
+    audio.currentTime = ratio * calculatedDuration;
+    setCurrentTime(audio.currentTime);
+  };
+
+  const handleWaveformMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const audio = audioRef.current;
+    if (!audio || amplitudes.length === 0) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, x / rect.width));
+    const calculatedDuration = audio.duration || duration || 0;
+    setHoveredTime(ratio * calculatedDuration);
+  };
+
+  const handleWaveformMouseLeave = () => {
+    setHoveredTime(null);
+  };
+
+  if (!effectivePlayingId || !playingSnippet) return null;
+
+  const playbackPercent = duration > 0 ? (currentTime / duration) : 0;
+  const hoveredPercent = hoveredTime !== null && duration > 0 ? (hoveredTime / duration) : 0;
+
   return (
-    <div className="flex flex-col md:flex-row items-center gap-4 bg-[#0D0D0D] border border-white/10 p-3 rounded-2xl w-full" id={`wp-container-${id}`}>
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          preload="auto"
-          style={{ display: 'none' }}
-        />
-      )}
-
-      {/* Play/Pause round button */}
-      <button
-        onClick={togglePlay}
-        className={`flex items-center justify-center w-11 h-11 rounded-full transition-all duration-300 transform active:scale-95 cursor-pointer ${
-          isPlaying ? 'bg-amber-600 text-black hover:bg-amber-500' : 'bg-[#1A1A1A] border border-white/10 hover:bg-[#222] text-neutral-300'
-        } shadow-sm`}
-        id={`wp-btn-toggle-${id}`}
-        title={isPlaying ? "Pause" : "Play Narration"}
+    <AnimatePresence>
+      <motion.div 
+        initial={{ y: 150, opacity: 0 }}
+        animate={{ 
+          y: isPlayerCollapsed ? "100%" : 0, 
+          opacity: 1 
+        }}
+        exit={{ y: 150, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 25 }}
+        className={`fixed bottom-0 left-0 right-0 bg-slate-900/98 backdrop-blur-md border-t border-slate-800 shadow-2xl z-50 px-4 py-3 sm:px-6 flex flex-col gap-3 select-none ${isPlayerCollapsed ? 'pointer-events-none' : 'pointer-events-auto'}`}
       >
-        {isPlaying ? (
-          <Pause className="w-5 h-5 fill-current" />
-        ) : (
-          <Play className="w-5 h-5 fill-current translate-x-0.5" />
-        )}
-      </button>
-
-      {/* Details & Waveform area */}
-      <div className="flex-1 w-full flex flex-col gap-1">
-        <div className="flex justify-between items-center text-[10px] font-mono text-neutral-500">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
-        </div>
-
-        <div className="relative h-11 w-full flex items-center bg-[#050505] border border-white/5 rounded-lg p-1">
-          <canvas
-            ref={canvasRef}
-            width={320}
-            height={44}
-            onClick={handleScrub}
-            className="w-full h-full cursor-pointer rounded"
-            title="Click to jump timeline"
-          />
-        </div>
-      </div>
-
-      {/* Dynamic Voice modifier dials */}
-      <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-        {/* Speed modifier trigger */}
-        <button
-          onClick={handleSpeedChange}
-          className="flex items-center gap-1 text-[11px] font-mono font-medium text-neutral-400 hover:text-white bg-[#1A1A1A] border border-white/10 px-2 py-1 rounded cursor-pointer"
-          id={`wp-speed-${id}`}
-          title="Adjust speed"
+        {/* Floating Toggle Tab */}
+        <div 
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsPlayerCollapsed(!isPlayerCollapsed);
+          }}
+          style={{
+            right: isSidebarOpen ? `${sidebarWidth - 48}px` : '16px',
+            transition: 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
+          className="absolute top-0 -translate-y-full bg-slate-900/98 backdrop-blur-md border-t border-l border-r border-slate-800 rounded-t-lg px-4 py-2 flex items-center gap-2 cursor-pointer shadow-lg hover:text-indigo-400 text-slate-300 transition-colors duration-200 pointer-events-auto"
+          title={isPlayerCollapsed ? "Expand" : "Collapse"}
         >
-          <RefreshCw className="w-3 h-3 hover:rotate-45 transition-transform" />
-          <span>{playbackRate.toFixed(2)}x</span>
-        </button>
-
-        {/* Volume slider control */}
-        <div className="flex items-center gap-1.5 text-neutral-500">
-          <Volume2 className="w-3.5 h-3.5" />
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={volume}
-            onChange={handleVolumeChange}
-            className="w-16 h-1 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-            id={`wp-vol-${id}`}
-            title="Volume"
-          />
+          {isPlayerCollapsed ? (
+            <ChevronUp className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          )}
+          <span className="text-[10px] font-bold tracking-wider uppercase font-sans">Audio Player</span>
         </div>
 
-        {/* Download WAV button */}
-        <a
-          href={audioUrl}
-          download={`audiobook_narration_${id}.wav`}
-          className="flex items-center justify-center w-8 h-8 rounded bg-[#1A1A1A] border border-white/10 hover:bg-neutral-800 text-neutral-400 hover:text-amber-500 transition-colors"
-          title="Download WAV voice segment"
-          id={`wp-download-${id}`}
-        >
-          <Download className="w-4 h-4" />
-        </a>
-      </div>
-    </div>
+        {/* Collapse and Title Bar */}
+        <div className="flex items-center justify-between border-b border-slate-800/50 pb-2">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 shrink-0">
+              <Sparkles className="w-4 h-4 animate-pulse" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400 tracking-wide uppercase">
+                  {playingChapter?.title || 'Active Segment'}
+                </span>
+                <span className="text-slate-700">•</span>
+                <span className="text-xs font-medium text-indigo-300">
+                  Speaker: {playingSpeaker?.name || 'Narrator'} ({playingSpeaker?.voice || 'Default'})
+                </span>
+              </div>
+              <p className="text-sm text-slate-100 font-medium truncate italic mt-0.5 max-w-2xl">
+                "{activeText}"
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Collapse toggle */}
+            <button 
+              onClick={() => setIsPlayerCollapsed(!isPlayerCollapsed)}
+              className="text-slate-500 hover:text-slate-300 p-1 rounded hover:bg-slate-800 transition-colors"
+              title={isPlayerCollapsed ? "Expand player" : "Minimize player"}
+            >
+              {isPlayerCollapsed ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            </button>
+            <button 
+              onClick={onStop}
+              className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-800 transition-colors"
+              title="Stop playback"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </button>
+          </div>
+        </div>
+
+        {/* Playback Controls and Waveform */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+          
+          {/* Playback Controls (3 cols) */}
+          <div className="md:col-span-3 flex items-center justify-center md:justify-start gap-4">
+            <button 
+              onClick={() => skipTime(-5)}
+              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors"
+              title="Rewind 5s"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+
+            <button 
+              onClick={togglePlayPause}
+              className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center transform active:scale-95"
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+            </button>
+
+            <button 
+              onClick={() => skipTime(5)}
+              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors"
+              title="Fast Forward 5s"
+            >
+              <RotateCw className="w-4 h-4" />
+            </button>
+
+            <div className="text-xs font-mono text-slate-400 ml-2">
+              <span>{formatDuration(currentTime)}</span>
+              <span className="mx-1 text-slate-600">/</span>
+              <span>{formatDuration(duration || activeGen?.duration || 0)}</span>
+            </div>
+          </div>
+
+          {/* Interactive Visual Waveform (6 cols) */}
+          <div className="md:col-span-6 flex flex-col gap-1 w-full position-relative">
+            <div className="relative h-12 w-full bg-slate-950/40 rounded-lg border border-slate-800/40 px-2 flex items-center">
+              {isLoadingAudio ? (
+                <div className="w-full flex items-center justify-center gap-2 text-xs text-slate-500 italic">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
+                  <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.15s' }} />
+                  <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.3s' }} />
+                  Analyzing waveform...
+                </div>
+              ) : amplitudes.length > 0 ? (
+                <svg 
+                  className="w-full h-10 overflow-visible cursor-pointer"
+                  onMouseMove={handleWaveformMouseMove}
+                  onMouseLeave={handleWaveformMouseLeave}
+                  onClick={handleWaveformClick}
+                >
+                  <g className="waveform-bars">
+                    {amplitudes.map((amp, index) => {
+                      const ratio = index / amplitudes.length;
+                      const isPlayed = ratio <= playbackPercent;
+                      const isHoveredPast = hoveredTime !== null && ratio <= hoveredPercent;
+                      
+                      let fill = "rgba(100, 116, 139, 0.25)"; // slate-500/25 default
+                      if (isPlayed) {
+                        fill = "rgba(99, 102, 241, 0.85)"; // indigo-500 playing
+                      } else if (isHoveredPast) {
+                        fill = "rgba(56, 189, 248, 0.5)"; // sky-400 hover
+                      }
+
+                      // Bar dimensions using raw percentage math - completely safe for SVG attributes!
+                      const barWidthPercent = (100 / amplitudes.length) * 0.75;
+                      const xPercent = (index / amplitudes.length) * 100;
+                      const barHeight = Math.max(3, amp * 36);
+                      const y = (36 - barHeight) / 2;
+
+                      return (
+                        <rect
+                          key={index}
+                          x={`${xPercent}%`}
+                          y={y + 2}
+                          width={`${barWidthPercent}%`}
+                          height={barHeight}
+                          rx={1}
+                          fill={fill}
+                          className="transition-colors duration-150 hover:fill-sky-400"
+                          onClick={(e) => {
+                            e.stopPropagation(); // prevent double seek from SVG click
+                            handleSeek(index);
+                          }}
+                        />
+                      );
+                    })}
+                  </g>
+
+                  {/* Current Playback Position Indicator Line */}
+                  {duration > 0 && (
+                    <g className="pointer-events-none">
+                      {/* Glow overlay */}
+                      <line
+                        x1={`${playbackPercent * 100}%`}
+                        y1="0"
+                        x2={`${playbackPercent * 100}%`}
+                        y2="40"
+                        stroke="#00FFFF"
+                        strokeWidth="5"
+                        strokeOpacity="0.15"
+                      />
+                      <line
+                        x1={`${playbackPercent * 100}%`}
+                        y1="0"
+                        x2={`${playbackPercent * 100}%`}
+                        y2="40"
+                        stroke="#00FFFF"
+                        strokeWidth="3"
+                        strokeOpacity="0.25"
+                      />
+                      {/* 1px Center Line with 40% opacity */}
+                      <line
+                        x1={`${playbackPercent * 100}%`}
+                        y1="0"
+                        x2={`${playbackPercent * 100}%`}
+                        y2="40"
+                        stroke="#00FFFF"
+                        strokeWidth="1"
+                        strokeOpacity="0.4"
+                      />
+                    </g>
+                  )}
+
+                  {/* Hover Position Indicator Line (50% of current line's alpha) */}
+                  {hoveredTime !== null && duration > 0 && (
+                    <g className="pointer-events-none">
+                      {/* Hover Glow */}
+                      <line
+                        x1={`${hoveredPercent * 100}%`}
+                        y1="0"
+                        x2={`${hoveredPercent * 100}%`}
+                        y2="40"
+                        stroke="#00FFFF"
+                        strokeWidth="3"
+                        strokeOpacity="0.08"
+                      />
+                      {/* Hover Center Line (50% of 40% = 20% opacity) */}
+                      <line
+                        x1={`${hoveredPercent * 100}%`}
+                        y1="0"
+                        x2={`${hoveredPercent * 100}%`}
+                        y2="40"
+                        stroke="#00FFFF"
+                        strokeWidth="1"
+                        strokeOpacity="0.2"
+                      />
+                    </g>
+                  )}
+                </svg>
+              ) : (
+                <div className="w-full h-1 bg-slate-800 rounded">
+                  <div 
+                    className="h-full bg-indigo-500 rounded" 
+                    style={{ width: `${playbackPercent * 100}%` }}
+                  />
+                </div>
+              )}
+
+              {/* Hover time tooltip */}
+              {hoveredTime !== null && duration > 0 && (
+                <div 
+                  className="absolute -top-7 transform -translate-x-1/2 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded text-[10px] font-mono text-indigo-400 shadow-md pointer-events-none z-10"
+                  style={{ left: `calc(${hoveredPercent * 100}% + 8px)` }}
+                >
+                  {formatDuration(hoveredTime)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Volume & Playback Rate Controls (3 cols) */}
+          <div className="md:col-span-3 flex items-center justify-center md:justify-end gap-4">
+            
+            {/* Playback speed selector */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsSpeedOpen(!isSpeedOpen)}
+                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors"
+                title="Playback Speed"
+              >
+                <Gauge className="w-3.5 h-3.5 text-slate-400" />
+                <span>{playbackSpeed}x</span>
+              </button>
+              
+              {isSpeedOpen && (
+                <div className="absolute bottom-10 right-0 bg-slate-950 border border-slate-800 rounded-lg shadow-xl py-1 w-24 z-50 text-xs">
+                  {[0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+                    <button
+                      key={speed}
+                      onClick={() => changeSpeed(speed)}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-slate-800 transition-colors ${playbackSpeed === speed ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
+                    >
+                      {speed}x
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Volume Slider */}
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={toggleMute}
+                className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded transition-colors"
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-20 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                style={{
+                  background: `linear-gradient(to right, #6366f1 0%, #6366f1 ${(isMuted ? 0 : volume) * 100}%, #1e293b ${(isMuted ? 0 : volume) * 100}%, #1e293b 100%)`
+                }}
+              />
+            </div>
+
+          </div>
+
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 }

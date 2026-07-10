@@ -66,12 +66,16 @@ export interface Speaker {
   id: string;
   name: string;
   isNarrator: boolean;
-  voice: VoiceName;
-  model: string; // gemini-3.1-flash-tts-preview, gemini-2.5-flash-tts, gemini-2.5-pro-tts, gemini-2.5-flash-lite-preview-tts
-  pacing: 'slow' | 'normal' | 'fast';
-  pitch: 'low' | 'normal' | 'high';
-  emotion: string; // 'none', 'laughing', 'sad', 'excited', 'whispering', 'shouting', 'nominous', 'gasping'
-  customInstructions: string; // performance directives (replaces block custom instructions)
+  voice: VoiceName | string;
+  model?: string; // gemini-3.1-flash-tts-preview, gemini-2.5-flash-tts, gemini-2.5-pro-tts, etc.
+  pacing?: 'slow' | 'normal' | 'fast' | string;
+  pitch?: 'low' | 'normal' | 'high' | string;
+  emotion?: string; // 'none', 'laughing', 'sad', 'excited', 'whispering', 'shouting', 'nominous', 'gasping'
+  customInstructions?: string; // performance directives (old)
+  
+  // New properties for Audiobook Studio App2
+  order: number;
+  style: string; // custom instructions / style guidelines
 }
 
 export interface NarrationBlock {
@@ -86,22 +90,63 @@ export interface NarrationBlock {
   fallback?: boolean;
 }
 
+export type AudioEncoding = 'M4A' | 'OGG_OPUS' | 'MP3' | 'WAV';
+
+export interface Generation {
+  id: string;
+  snippetId: string;
+  speakerId: string | null;
+  timestamp: string | number;
+  model: string;
+  text: string;
+  audioMimeType: string;
+  duration: number;
+}
+
+export interface Snippet {
+  id: string;
+  order: number;
+  text: string;
+  speakerId: string | null;
+  status: 'idle' | 'generating' | 'done' | 'error';
+  errorMessage?: string;
+  generations: Generation[];
+  activeGenerationId: string | null;
+  isCollapsed?: boolean;
+}
+
 export interface Chapter {
   id: string;
-  projectId: string;
   title: string;
   order: number;
-  blocks: NarrationBlock[];
+
+  // New properties
+  defaultSpeakerId: string | null;
+  isCollapsed: boolean;
+  snippets: Snippet[];
+
+  // Old properties (for compatibility)
+  projectId?: string;
+  blocks?: NarrationBlock[];
 }
 
 export interface Project {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: string;
-  lastModifiedAt: string;
+  // New properties
+  title: string;
+  settings: {
+    model: string;
+    encoding: AudioEncoding;
+    sampleRate: string;
+  };
+  speakers: Speaker[];
   chapters: Chapter[];
-  speakers: Speaker[]; // preconfigured speakers for this project
+
+  // Old properties (for compatibility)
+  id?: string;
+  name?: string;
+  description?: string;
+  createdAt?: string;
+  lastModifiedAt?: string;
 }
 
 export interface GenerationRequest {

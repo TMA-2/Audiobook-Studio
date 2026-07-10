@@ -6,9 +6,11 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import dotenv from "dotenv";
+dotenv.config();
 import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { createServer as createViteServer } from "vite";
-import { Project, Chapter, NarrationBlock, VoiceName } from "./src/types.js";
+import { VoiceName } from "./src/types.js";
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -23,7 +25,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 // Initial default demo project to showcase the audio visual experience
-const SAMPLE_PROJECT: Project[] = [
+const SAMPLE_PROJECT: any[] = [
   {
     id: "whispering-shadows",
     name: "The Whispering Shadows",
@@ -140,7 +142,7 @@ const SAMPLE_PROJECT: Project[] = [
 ];
 
 // Initialize local project cache with default sample if needed
-function loadProjects(): Project[] {
+function loadProjects(): any[] {
   try {
     if (fs.existsSync(PROJECTS_FILE)) {
       const data = fs.readFileSync(PROJECTS_FILE, 'utf-8');
@@ -154,7 +156,7 @@ function loadProjects(): Project[] {
   return SAMPLE_PROJECT;
 }
 
-function saveProjects(projects: Project[]) {
+function saveProjects(projects: any[]) {
   try {
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), 'utf-8');
   } catch (err) {
@@ -162,16 +164,59 @@ function saveProjects(projects: Project[]) {
   }
 }
 
+// Clean quotes helper for environment variables
+const cleanEnvVal = (val: string | undefined): string => {
+  if (!val) return "";
+  let trimmed = val.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    trimmed = trimmed.substring(1, trimmed.length - 1);
+  }
+  return trimmed.trim();
+};
+
 // Lazy load Gemini API
 let geminiClientCache: GoogleGenAI | null = null;
 function getGeminiClient() {
-  if (!process.env.GEMINI_API_KEY) {
+  const useVertexVal = cleanEnvVal(process.env.USE_VERTEX_AI);
+  const isVertex = useVertexVal === "true";
+
+  if (isVertex) {
+    if (!geminiClientCache) {
+      const gcpKey = cleanEnvVal(process.env.GCP_SERVICE_ACCOUNT_KEY);
+      if (gcpKey) {
+        try {
+          const tempPath = path.join(process.cwd(), '.gcp-key.json');
+          fs.writeFileSync(tempPath, gcpKey, 'utf-8');
+          process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
+          console.log("[Server] Wrote GCP Service Account Key to", tempPath);
+        } catch (err) {
+          console.error("[Server] Failed to write service account key:", err);
+        }
+      }
+
+      const project = cleanEnvVal(process.env.GCP_PROJECT_ID);
+      const location = cleanEnvVal(process.env.GCP_LOCATION) || 'us-central1';
+
+      console.log(`[Server] Initializing GoogleGenAI with Vertex AI (Project: ${project}, Location: ${location})`);
+      geminiClientCache = new GoogleGenAI({
+        vertexai: true,
+        project: project,
+        location: location,
+      });
+    }
+    return geminiClientCache;
+  }
+
+  // Fallback to Google AI Studio (API Key)
+  const apiKey = cleanEnvVal(process.env.GEMINI_API_KEY);
+  if (!apiKey) {
     console.warn("GEMINI_API_KEY is not defined in the environment variables.");
     return null;
   }
   if (!geminiClientCache) {
+    console.log("[Server] Initializing GoogleGenAI with AI Studio API Key");
     geminiClientCache = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: apiKey,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -192,20 +237,26 @@ app.get("/api/projects", (req, res) => {
 
 // Update standard projects database
 app.post("/api/projects", (req, res) => {
-  const projects = req.body as Project[];
+  const projects = req.body as any[];
   saveProjects(projects);
   res.json({ success: true });
 });
 
 // Text-to-speech API route proxying to Gemini tts-preview
 app.post("/api/tts/generate", async (req, res) => {
-  const { text, speaker, pacing, pitch, emotion, customInstructions, model } = req.body;
+  const text = req.body.text;
+  const speaker = req.body.speaker || req.body.voiceName;
+  const pacing = req.body.pacing;
+  const pitch = req.body.pitch;
+  const emotion = req.body.emotion;
+  const customInstructions = req.body.customInstructions || req.body.styleInstruction;
+  const model = req.body.model || req.body.modelName;
   
   if (!text || !speaker) {
     return res.status(400).json({ error: "Missing required parameters: text and speaker are mandatory." });
   }
 
-  const selectedModel = model || "gemini-3.1-flash-tts-preview";
+  let selectedModel = model || "gemini-3.1-flash-tts-preview";
   
   // Define style directions based on settings
   const styleNotes: string[] = [];
@@ -253,7 +304,7 @@ app.post("/api/tts/generate", async (req, res) => {
 
   let formattedPrompt = text;
   if (styleNotes.length > 0) {
-    formattedPrompt = `[Voice performance cue: ${styleNotes.join(", ")}]\n\n${text}`;
+    formattedPrompt = `[Speaking instructions: ${styleNotes.join(", ")}]\n${text.split("\n").join(" ")}`;
   }
 
   console.log(`Synthesizing Block with Speaker [${speaker}] using model [${selectedModel}]: "${formattedPrompt}"`);
@@ -267,17 +318,25 @@ app.post("/api/tts/generate", async (req, res) => {
     // Try standard UPPERCASE responseModalities first
     let response = await ai.models.generateContent({
       model: selectedModel,
-      contents: [{ parts: [{ text: formattedPrompt }] }],
+      contents: [{ role: "user", parts: [{ text: formattedPrompt }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold: HarmBlockThreshold.BLOCK_NONE
+            threshold: HarmBlockThreshold.OFF
           },
           {
             category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold: HarmBlockThreshold.BLOCK_NONE
+            threshold: HarmBlockThreshold.OFF
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.OFF
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.OFF
           }
         ],
         speechConfig: {
@@ -288,19 +347,45 @@ app.post("/api/tts/generate", async (req, res) => {
       },
     });
 
-    const httpStatus = response.sdkHttpResponse.responseInternal.status;
-    const httpStatusText = response.sdkHttpResponse.responseInternal.statusText;
+    const httpStatus = response.sdkHttpResponse?.responseInternal?.status;
+    const httpStatusText = response.sdkHttpResponse?.responseInternal?.statusText;
     
-    if(httpStatus != 400) {
-      return res.status(httpStatus).json({error: `HTTP Error ${httpStatus} received from API: ${httpStatusText}`})
+    if (httpStatus && httpStatus !== 200) {
+      return res.status(httpStatus).json({ error: `HTTP Error ${httpStatus} received from API: ${httpStatusText}` });
     }
 
-    let audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+    const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+    const audioData = inlineData?.data || null;
+    const mimeType = inlineData?.mimeType || 'audio/pcm';
 
     if (!audioData) {
       const responseID = response.responseId;
-      const responseFeedback = response.promptFeedback;
-      return res.status(500).json({ error: `Gemini API returned an empty audio response. Response ID: ${responseID}; Feedback: ${responseFeedback}` });
+      const firstCandidate = response.candidates?.[0];
+      const finishReason = firstCandidate?.finishReason;
+      const safetyRatings = firstCandidate?.safetyRatings;
+      const promptFeedback = response.promptFeedback;
+
+      const debugDetails: any = {
+        responseId: responseID,
+      };
+
+      if (finishReason) {
+        debugDetails.finishReason = finishReason;
+      }
+      if (safetyRatings && safetyRatings.length > 0) {
+        debugDetails.candidateSafetyRatings = safetyRatings;
+      }
+      if (promptFeedback) {
+        debugDetails.promptFeedback = promptFeedback;
+      }
+
+      console.warn("[Server] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
+      const detailsStr = JSON.stringify(debugDetails);
+
+      return res.status(500).json({ 
+        error: `Gemini API returned an empty audio response. Details: ${detailsStr}`,
+        details: debugDetails
+      });
     }
 
     const tokenCount = response.usageMetadata.totalTokenCount;
@@ -309,6 +394,7 @@ app.post("/api/tts/generate", async (req, res) => {
     return res.json({
       success: true,
       audioData: audioData,
+      mimeType: mimeType,
       compiledPrompt: formattedPrompt,
       fallback: false
     });
@@ -370,18 +456,18 @@ ${screenplayText}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
-      contents: prompt,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         responseMimeType: "application/json",
       }
     });
 
     const text = response.text;
-    const httpStatus = response.sdkHttpResponse.responseInternal.status;
-    const httpStatusText = response.sdkHttpResponse.responseInternal.statusText;
+    const httpStatus = response.sdkHttpResponse?.responseInternal?.status;
+    const httpStatusText = response.sdkHttpResponse?.responseInternal?.statusText;
     
-    if(httpStatus != 400) {
-      throw new Error(`HTTP Error ${httpStatus} received from API: ${httpStatusText}`)
+    if (httpStatus && httpStatus !== 200) {
+      throw new Error(`HTTP Error ${httpStatus} received from API: ${httpStatusText}`);
     }
 
     if (!text) {
