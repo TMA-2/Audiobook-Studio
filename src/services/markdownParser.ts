@@ -1,4 +1,4 @@
-import { Project, Chapter, Snippet, Speaker } from '../types';
+import { Project, Chapter, Snippet, Speaker, GEMINI_MODELS } from '../types';
 import { generateId } from './idService';
 
 // Helper to clean names for robust matching (e.g. "Justin (Narrator)" -> "justin")
@@ -9,27 +9,27 @@ function cleanName(name: string): string {
 function parseMarkdownTable(lines: string[]): Speaker[] {
   const speakers: Speaker[] = [];
   let headers: string[] = [];
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed.includes('|')) continue;
-    
+
     const cells = trimmed.split('|').map(c => c.trim());
     if (cells[0] === '') cells.shift();
     if (cells[cells.length - 1] === '') cells.pop();
-    
+
     if (cells.length < 2) continue;
-    
+
     // Check if separator row
     if (cells.every(c => c.startsWith('-') || c.startsWith(':') || c.endsWith(':'))) {
       continue;
     }
-    
+
     if (headers.length === 0) {
       headers = cells.map(h => h.toLowerCase());
       continue;
     }
-    
+
     const speaker: Partial<Speaker> = { id: generateId(), order: speakers.length, isNarrator: false };
     cells.forEach((cell, idx) => {
       const header = headers[idx];
@@ -44,7 +44,7 @@ function parseMarkdownTable(lines: string[]): Speaker[] {
         speaker.style = cell;
       }
     });
-    
+
     if (speaker.name) {
       speakers.push({
         id: speaker.id || generateId(),
@@ -64,16 +64,16 @@ export function parseMarkdown(markdown: string): Project {
   let title = 'Untitled Audiobook';
   let speakers: Speaker[] = [];
   let chapters: Chapter[] = [];
-  
+
   let currentSection: 'none' | 'speakers' | 'content' = 'none';
   let currentSpeaker: Speaker | null = null;
   let currentChapter: Chapter | null = null;
-  
+
   // Pre-pass to find the speakers section and check for table strictly
   let speakersSectionLines: string[] = [];
   let hasTable = false;
   let inSpeakersSection = false;
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('## ')) {
@@ -93,7 +93,7 @@ export function parseMarkdown(markdown: string): Project {
       speakersSectionLines.push(line);
     }
   }
-  
+
   // Strict table detection: must have a line with '|' followed by a separator line with '|' and '---'
   for (let i = 0; i < speakersSectionLines.length - 1; i++) {
     const line = speakersSectionLines[i].trim();
@@ -103,24 +103,24 @@ export function parseMarkdown(markdown: string): Project {
       break;
     }
   }
-  
+
   if (hasTable) {
     speakers = parseMarkdownTable(speakersSectionLines);
   }
-  
+
   // Main pass
   currentSection = 'none';
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
     if (!trimmed) continue;
-    
+
     if (trimmed.startsWith('# ')) {
       title = trimmed.substring(2).trim();
       currentSection = 'none';
       continue;
     }
-    
+
     if (trimmed.startsWith('## ')) {
       const secName = trimmed.substring(3).toLowerCase();
       if (secName.includes('speaker') || secName.includes('character') || secName.includes('voice')) {
@@ -149,7 +149,7 @@ export function parseMarkdown(markdown: string): Project {
         continue;
       }
     }
-    
+
     if (currentSection === 'speakers' && !hasTable) {
       if (trimmed.startsWith('### ')) {
         if (currentSpeaker) {
@@ -170,7 +170,7 @@ export function parseMarkdown(markdown: string): Project {
           if (colonIdx !== -1) {
             const key = content.substring(0, colonIdx).trim().toLowerCase();
             const val = content.substring(colonIdx + 1).trim();
-            
+
             if (key.includes('voice') || key.includes('model')) {
               currentSpeaker.voice = val;
             } else if (key.includes('style') || key.includes('instruction')) {
@@ -192,7 +192,7 @@ export function parseMarkdown(markdown: string): Project {
           snippets: []
         };
       }
-      
+
       // Parse snippet line and match against speakers using cleanName
       let matchedSpeaker: Speaker | null = null;
       let cleanText = trimmed;
@@ -208,14 +208,14 @@ export function parseMarkdown(markdown: string): Project {
           }
         }
       }
-      
+
       // Strip quotes if they wrap the text
       if (cleanText.startsWith('"') && cleanText.endsWith('"')) {
         cleanText = cleanText.substring(1, cleanText.length - 1);
       } else if (cleanText.startsWith('“') && cleanText.endsWith('”')) {
         cleanText = cleanText.substring(1, cleanText.length - 1);
       }
-      
+
       currentChapter.snippets.push({
         id: generateId(),
         order: currentChapter.snippets.length,
@@ -227,7 +227,7 @@ export function parseMarkdown(markdown: string): Project {
       });
     }
   }
-  
+
   // Flush remaining speaker if any (fallback)
   if (currentSpeaker && !hasTable) {
     speakers.push(currentSpeaker);
@@ -236,7 +236,7 @@ export function parseMarkdown(markdown: string): Project {
   if (currentChapter) {
     chapters.push(currentChapter);
   }
-  
+
   // Fallback if no speakers parsed
   if (speakers.length === 0) {
     speakers = [
@@ -250,7 +250,7 @@ export function parseMarkdown(markdown: string): Project {
       }
     ];
   }
-  
+
   // Fallback if no chapters parsed
   if (chapters.length === 0) {
     chapters = [
@@ -275,7 +275,7 @@ export function parseMarkdown(markdown: string): Project {
       }
     ];
   }
-  
+
   // Set default speaker for chapters if they have narrators
   const defaultNarrator = speakers.find(s => s.isNarrator) || speakers[0];
   chapters.forEach(c => {
@@ -283,11 +283,11 @@ export function parseMarkdown(markdown: string): Project {
       c.defaultSpeakerId = defaultNarrator.id;
     }
   });
-  
+
   return {
     title,
     settings: {
-      model: 'gemini-2.5-flash-tts',
+      model: GEMINI_MODELS[0].id,
       encoding: 'M4A',
       sampleRate: '24000'
     },

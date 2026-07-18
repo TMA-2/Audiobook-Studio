@@ -30,9 +30,10 @@ import {
   History,
   FileAudio,
   Minimize2,
-  Maximize2
+  Maximize2,
+  BookOpen
 } from 'lucide-react';
-import { Project, Chapter, Snippet, Speaker, AudioEncoding, Generation } from './types';
+import { Project, Chapter, Snippet, Speaker, AudioEncoding, Generation, Scene, GEMINI_VOICES, GEMINI_MODELS } from './types';
 import { generateTTS } from './services/geminiService';
 import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMChunks } from './services/audioService';
 import { generateId } from './services/idService';
@@ -41,53 +42,15 @@ import { saveAudio, getAudio, deleteAudio } from './services/dbService';
 import { formatDuration, formatError, getSpeakerStyles } from './services/utils';
 import * as StateModifiers from './services/appStateModifiers';
 import WaveformPlayer from './components/WaveformPlayer';
+import { SettingsDialogue } from './components/SettingsDialogue';
 
 // --- Constants ---
-const GEMINI_VOICES = [
-  { id: 'Achird', name: 'Achird', gender: 'Male' },	
-  { id: 'Algenib', name: 'Algenib', gender: 'Male' },	
-  { id: 'Algieba', name: 'Algieba', gender: 'Male' },	
-  { id: 'Alnilam', name: 'Alnilam', gender: 'Male' },	
-  { id: 'Charon', name: 'Charon', gender: 'Male' },	
-  { id: 'Enceladus', name: 'Enceladus', gender: 'Male' },	
-  { id: 'Fenrir', name: 'Fenrir', gender: 'Male' },	
-  { id: 'Iapetus', name: 'Iapetus', gender: 'Male' },	
-  { id: 'Orus', name: 'Orus', gender: 'Male' },	
-  { id: 'Puck', name: 'Puck', gender: 'Male' },	
-  { id: 'Rasalgethi', name: 'Rasalgethi', gender: 'Male' },	
-  { id: 'Sadachbia', name: 'Sadachbia', gender: 'Male' },	
-  { id: 'Sadaltager', name: 'Sadaltager', gender: 'Male' },	
-  { id: 'Schedar', name: 'Schedar', gender: 'Male' },	
-  { id: 'Umbriel', name: 'Umbriel', gender: 'Male' },	
-  { id: 'Zubenelgenubi', name: 'Zubenelgenubi', gender: 'Male' },
-  { id: 'Achernar', name: 'Achernar', gender: 'Female' },	
-  { id: 'Aoede', name: 'Aoede', gender: 'Female' },	
-  { id: 'Autonoe', name: 'Autonoe', gender: 'Female' },	
-  { id: 'Callirrhoe', name: 'Callirrhoe', gender: 'Female' },	
-  { id: 'Despina', name: 'Despina', gender: 'Female' },	
-  { id: 'Erinome', name: 'Erinome', gender: 'Female' },	
-  { id: 'Gacrux', name: 'Gacrux', gender: 'Female' },	
-  { id: 'Kore', name: 'Kore', gender: 'Female' },	
-  { id: 'Laomedeia', name: 'Laomedeia', gender: 'Female' },	
-  { id: 'Leda', name: 'Leda', gender: 'Female' },	
-  { id: 'Pulcherrima', name: 'Pulcherrima', gender: 'Female' },	
-  { id: 'Sulafat', name: 'Sulafat', gender: 'Female' },	
-  { id: 'Vindemiatrix', name: 'Vindemiatrix', gender: 'Female' },	
-  { id: 'Zephyr', name: 'Zephyr', gender: 'Female' }
-];
-
-const GEMINI_MODELS = [
-  'gemini-2.5-flash-tts',
-  'gemini-2.5-pro-tts',
-  'gemini-2.5-flash-lite-preview-tts',
-  'gemini-3.1-flash-tts-preview'
-];
-
+const defaultEncoding: AudioEncoding = 'M4A';
 const INITIAL_PROJECT: Project = {
   title: 'Untitled Audiobook',
   settings: {
     model: GEMINI_MODELS[0],
-    encoding: 'M4A',
+    encoding: defaultEncoding,
     sampleRate: '24000'
   },
   speakers: [
@@ -154,6 +117,13 @@ export default function App() {
   const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
   const [previewingSpeakerId, setPreviewingSpeakerId] = useState<string | null>(null);
   
+  // Settings dialogue state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Active chapter state for single chapter view
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
+  // Selection states for bulk snippet actions
+  const [selectedSnippetIds, setSelectedSnippetIds] = useState<Set<string>>(new Set());
+
   // Sidebar collapse states
   const [isGenerationCollapsed, setIsGenerationCollapsed] = useState(false);
   const [isSpeakersCollapsed, setIsSpeakersCollapsed] = useState(false);
@@ -199,10 +169,15 @@ export default function App() {
           }));
           setProject({ ...parsed, chapters: sanitizedChapters });
           setLastSavedProjectStr(JSON.stringify({ ...parsed, chapters: sanitizedChapters }));
+          if (sanitizedChapters.length > 0) {
+            setActiveChapterId(sanitizedChapters[0].id);
+          }
         }
       } catch (e) {
         console.error("Failed to load auto-saved project", e);
       }
+    } else if (INITIAL_PROJECT.chapters && INITIAL_PROJECT.chapters.length > 0) {
+      setActiveChapterId(INITIAL_PROJECT.chapters[0].id);
     }
     setIsLoaded(true);
   }, []);
@@ -346,6 +321,9 @@ export default function App() {
         };
         
         setProject(importedProject);
+        if (importedProject.chapters && importedProject.chapters.length > 0) {
+          setActiveChapterId(importedProject.chapters[0].id);
+        }
       } catch (err) {
         console.error(err);
         alert("Failed to parse project file. Ensure it matches the correct JSON schema.");
@@ -781,7 +759,7 @@ export default function App() {
         previewText,
         speaker.voice,
         combinedStyle,
-        project.settings.model
+        project.settings.model.name
       );
       playAudio(data, mimeType, () => setPreviewingSpeakerId(null));
     } catch (err: any) {
@@ -870,7 +848,7 @@ export default function App() {
         snippet.text, 
         speaker.voice, 
         combinedStyle, 
-        project.settings.model
+        project.settings.model.name
       );
 
       const duration = await getAudioDuration(data, mimeType);
@@ -884,7 +862,7 @@ export default function App() {
         snippetId: snippet.id,
         speakerId: speaker.id,
         timestamp: new Date().toISOString(),
-        model: project.settings.model,
+        model: project.settings.model.name,
         text: snippet.text,
         audioMimeType: mimeType,
         duration: duration
@@ -932,6 +910,136 @@ export default function App() {
     }
   };
 
+  // --- Bulk Snippet Operations ---
+  const handleToggleSelectSnippet = (snippetId: string) => {
+    setSelectedSnippetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(snippetId)) {
+        next.delete(snippetId);
+      } else {
+        next.add(snippetId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllSnippets = (chapterId: string) => {
+    const chapter = project.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+    const allIds = chapter.snippets.map(s => s.id);
+    const allSelected = allIds.every(id => selectedSnippetIds.has(id));
+    
+    setSelectedSnippetIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach(id => next.delete(id));
+      } else {
+        allIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedSnippetIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedSnippetIds.size === 0) return;
+    if (!window.confirm(`Are you sure you want to delete the ${selectedSnippetIds.size} selected snippets?`)) return;
+    
+    setProject(prev => {
+      const updatedChapters = prev.chapters.map(c => {
+        const remainingSnippets = c.snippets.filter(s => !selectedSnippetIds.has(s.id));
+        remainingSnippets.forEach((s, idx) => s.order = idx);
+        return {
+          ...c,
+          snippets: remainingSnippets.length > 0 
+            ? remainingSnippets 
+            : [{ id: generateId(), order: 0, text: '', speakerId: null, status: 'idle', isCollapsed: false, generations: [], activeGenerationId: null }]
+        };
+      });
+      return { ...prev, chapters: updatedChapters };
+    });
+    setSelectedSnippetIds(new Set());
+  };
+
+  const handleBulkAssignSpeaker = (speakerId: string | null) => {
+    if (selectedSnippetIds.size === 0) return;
+    setProject(prev => {
+      const updatedChapters = prev.chapters.map(c => ({
+        ...c,
+        snippets: c.snippets.map(s => selectedSnippetIds.has(s.id) ? { ...s, speakerId } : s)
+      }));
+      return { ...prev, chapters: updatedChapters };
+    });
+  };
+
+  const handleBulkAssignScene = (sceneId: string | null) => {
+    if (selectedSnippetIds.size === 0) return;
+    setProject(prev => {
+      const updatedChapters = prev.chapters.map(c => ({
+        ...c,
+        snippets: c.snippets.map(s => selectedSnippetIds.has(s.id) ? { ...s, sceneId: sceneId || undefined } : s)
+      }));
+      return { ...prev, chapters: updatedChapters };
+    });
+  };
+
+  const handleBulkMoveToChapter = (targetChapterId: string) => {
+    if (selectedSnippetIds.size === 0) return;
+    const targetChapter = project.chapters.find(c => c.id === targetChapterId);
+    if (!targetChapter) return;
+
+    setProject(prev => {
+      const selectedSnippets: Snippet[] = [];
+      prev.chapters.forEach(c => {
+        c.snippets.forEach(s => {
+          if (selectedSnippetIds.has(s.id)) {
+            selectedSnippets.push({ ...s });
+          }
+        });
+      });
+
+      const updatedChapters = prev.chapters.map(c => {
+        if (c.id === targetChapterId) {
+          const otherSnippets = c.snippets.filter(s => !selectedSnippetIds.has(s.id));
+          const newSnippets = [...otherSnippets, ...selectedSnippets];
+          newSnippets.forEach((s, idx) => s.order = idx);
+          return { ...c, snippets: newSnippets };
+        } else {
+          const remainingSnippets = c.snippets.filter(s => !selectedSnippetIds.has(s.id));
+          if (remainingSnippets.length === 0) {
+            remainingSnippets.push({ id: generateId(), order: 0, text: '', speakerId: null, status: 'idle', isCollapsed: false, generations: [], activeGenerationId: null });
+          }
+          remainingSnippets.forEach((s, idx) => s.order = idx);
+          return { ...c, snippets: remainingSnippets };
+        }
+      });
+
+      return { ...prev, chapters: updatedChapters };
+    });
+    setSelectedSnippetIds(new Set());
+  };
+
+  const handleBulkGenerate = async () => {
+    if (selectedSnippetIds.size === 0) return;
+    const selectedList = Array.from(selectedSnippetIds);
+    for (const snippetId of selectedList) {
+      let foundChapterId: string | null = null;
+      for (const c of project.chapters) {
+        if (c.snippets.some(s => s.id === snippetId)) {
+          foundChapterId = c.id;
+          break;
+        }
+      }
+      if (foundChapterId) {
+        await handleGenerateSnippetAsync(foundChapterId, snippetId as string);
+      }
+    }
+    setSelectedSnippetIds(new Set<string>());
+  };
+
   //#endregion
 
   //#region Markdown Import
@@ -944,6 +1052,9 @@ export default function App() {
       const text = e.target?.result as string;
       const parsedProject = parseMarkdown(text);
       setProject(parsedProject);
+      if (parsedProject.chapters && parsedProject.chapters.length > 0) {
+        setActiveChapterId(parsedProject.chapters[0].id);
+      }
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1068,6 +1179,15 @@ export default function App() {
             <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
 
             <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
+              title="Open Settings Dialogue"
+            >
+              <Settings className="w-4 h-4 text-indigo-400" />
+              <span className="hidden lg:inline">Settings</span>
+            </button>
+
+            <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className={`p-2 rounded-md transition-colors ${isSidebarOpen ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
               title="Toggle Settings Sidebar"
@@ -1077,37 +1197,61 @@ export default function App() {
           </div>
         </header>
 
-        {/* Chapters Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
-          {project.chapters.map((chapter, chapterIndex) => {
-            const chapterWordCount = chapter.snippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
-            const chapterCharCount = chapter.snippets.reduce((acc, s) => acc + s.text.length, 0);
+        {/* Chapters Scroll Area (Single Active Chapter) */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+          {(() => {
+            const activeChapter = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
+            if (!activeChapter) {
+              return (
+                <div className="flex flex-col items-center justify-center h-full text-slate-500 py-20 border border-dashed border-slate-800 rounded-xl bg-slate-900/10">
+                  <BookOpen className="w-12 h-12 text-slate-600 mb-4" />
+                  <p className="text-slate-400 font-medium mb-3">No chapters in this project yet.</p>
+                  <button 
+                    onClick={addChapterState}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="w-4 h-4" /> Add Your First Chapter
+                  </button>
+                </div>
+              );
+            }
+
+            const chapterIndex = project.chapters.findIndex(c => c.id === activeChapter.id);
+            const chapterWordCount = activeChapter.snippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
+            const chapterCharCount = activeChapter.snippets.reduce((acc, s) => acc + s.text.length, 0);
             const chapterTokenEstimate = Math.ceil(chapterCharCount / 4) || 0;
+            const allSnippetsSelected = activeChapter.snippets.every(s => selectedSnippetIds.has(s.id));
 
             return (
               <div 
-                key={chapter.id} 
-                className="group/chapter bg-slate-900 rounded-xl border border-slate-800 shadow-sm overflow-hidden transition-all"
+                key={activeChapter.id} 
+                className="group/chapter bg-slate-900 rounded-xl border border-slate-800 shadow-sm overflow-hidden transition-all flex flex-col"
               >
-                
                 {/* Chapter Header */}
-                <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-1">
-                    <IconButton 
-                      icon={chapter.isCollapsed ? ChevronRight : ChevronDown} 
-                      onClick={() => updateChapterState(chapter.id, { isCollapsed: !chapter.isCollapsed })} 
-                      className="!p-1 text-slate-400 hover:text-slate-200" 
-                      title={chapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
+                <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3 shrink-0">
+                  <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+                    <input 
+                      type="checkbox" 
+                      checked={allSnippetsSelected}
+                      onChange={() => handleSelectAllSnippets(activeChapter.id)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
+                      title="Select/Deselect All Snippets"
                     />
-                    <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1">
+                    <IconButton 
+                      icon={activeChapter.isCollapsed ? ChevronRight : ChevronDown} 
+                      onClick={() => updateChapterState(activeChapter.id, { isCollapsed: !activeChapter.isCollapsed })} 
+                      className="!p-1 text-slate-400 hover:text-slate-200" 
+                      title={activeChapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
+                    />
+                    <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1 shrink-0">
                       <IconButton icon={ArrowUp} onClick={() => moveChapterState(chapterIndex, 'up')} className="!p-0" disabled={chapterIndex === 0} title="Move Chapter Up" />
                       <IconButton icon={ArrowDown} onClick={() => moveChapterState(chapterIndex, 'down')} className="!p-0" disabled={chapterIndex === project.chapters.length - 1} title="Move Chapter Down" />
                     </div>
                     <input 
                       type="text" 
-                      value={chapter.title}
-                      onChange={(e) => updateChapterState(chapter.id, { title: e.target.value })}
-                      className="bg-transparent text-lg font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/3"
+                      value={activeChapter.title}
+                      onChange={(e) => updateChapterState(activeChapter.id, { title: e.target.value })}
+                      className="bg-transparent text-lg font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/3 min-w-[120px] truncate"
                     />
                     <div className="flex items-center gap-2 ml-2 text-xs text-slate-500 font-medium">
                       <span title="Words">{chapterWordCount}W</span>
@@ -1121,9 +1265,9 @@ export default function App() {
                     <div className="flex items-center gap-2 ml-4">
                       <Users className="w-4 h-4 text-slate-500" />
                       <select 
-                        value={chapter.defaultSpeakerId || ''}
-                        onChange={(e) => updateChapterState(chapter.id, { defaultSpeakerId: e.target.value || null })}
-                        className="bg-slate-950 border border-slate-700 text-sm rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-300"
+                        value={activeChapter.defaultSpeakerId || ''}
+                        onChange={(e) => updateChapterState(activeChapter.id, { defaultSpeakerId: e.target.value || null })}
+                        className="bg-slate-950 border border-slate-700 text-xs rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-300"
                       >
                         <option value="">Default Speaker...</option>
                         {project.speakers.map(s => (
@@ -1135,35 +1279,47 @@ export default function App() {
                     {/* Collapse/Expand All Snippets Buttons */}
                     <div className="flex items-center gap-1 ml-4 opacity-0 group-hover/chapter:opacity-100 transition-opacity">
                       <button 
-                        onClick={() => toggleAllSnippetsInChapter(chapter.id, true)}
+                        onClick={() => toggleAllSnippetsInChapter(activeChapter.id, true)}
                         className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
                         title="Collapse All Snippets"
                       >
-                        <Minimize2 className="w-3 h-3" /></button>
+                        <Minimize2 className="w-3 h-3" />
+                      </button>
                       <button 
-                        onClick={() => toggleAllSnippetsInChapter(chapter.id, false)}
+                        onClick={() => toggleAllSnippetsInChapter(activeChapter.id, false)}
                         className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
                         title="Expand All Snippets"
                       >
-                        <Maximize2 className="w-3 h-3" /></button>
+                        <Maximize2 className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2 opacity-0 group-hover/chapter:opacity-100 transition-opacity">
-                    <IconButton icon={Wand2} title="Generate Chapter Audio" onClick={() => handleGenerateChapter(chapter.id)} className="hover:text-indigo-400" />
-                    <IconButton icon={Play} title="Play Chapter" onClick={() => playFromSnippetById(chapter.id, chapter.snippets[0]?.id)} />
-                    <IconButton icon={Download} title="Export Concatenated Chapter Audio" onClick={() => handleExportChapterAudio(chapter.id)} className="hover:text-emerald-400" />
-                    <IconButton icon={Trash2} title="Delete Chapter" onClick={() => deleteChapterState(chapter.id)} className="hover:text-red-400" />
+                  <div className="flex items-center gap-2 opacity-0 group-hover/chapter:opacity-100 transition-opacity shrink-0">
+                    <IconButton icon={Wand2} title="Generate Chapter Audio" onClick={() => handleGenerateChapter(activeChapter.id)} className="hover:text-indigo-400" />
+                    <IconButton icon={Play} title="Play Chapter" onClick={() => playFromSnippetById(activeChapter.id, activeChapter.snippets[0]?.id)} />
+                    <IconButton icon={Download} title="Export Concatenated Chapter Audio" onClick={() => handleExportChapterAudio(activeChapter.id)} className="hover:text-emerald-400" />
+                    <IconButton icon={Trash2} title="Delete Chapter" onClick={() => {
+                      if (window.confirm("Are you sure you want to delete this chapter?")) {
+                        deleteChapterState(activeChapter.id);
+                        if (project.chapters.length > 1) {
+                          const nextIdx = chapterIndex === 0 ? 1 : chapterIndex - 1;
+                          setActiveChapterId(project.chapters[nextIdx].id);
+                        } else {
+                          setActiveChapterId(null);
+                        }
+                      }
+                    }} className="hover:text-red-400" />
                   </div>
                 </div>
 
                 {/* Collapsed Summary */}
-                {chapter.isCollapsed && (
+                {activeChapter.isCollapsed && (
                   <div 
-                    className="px-12 py-2 text-xs text-slate-500 italic bg-slate-900/30 cursor-pointer hover:bg-slate-800/30 transition-colors flex items-center gap-3"
-                    onClick={() => updateChapterState(chapter.id, { isCollapsed: false })}
+                    className="px-12 py-3 text-xs text-slate-500 italic bg-slate-900/30 cursor-pointer hover:bg-slate-800/30 transition-colors flex items-center gap-3"
+                    onClick={() => updateChapterState(activeChapter.id, { isCollapsed: false })}
                   >
-                    <span>{chapter.snippets.length} snippet{chapter.snippets.length !== 1 ? 's' : ''} hidden</span>
+                    <span>{activeChapter.snippets.length} snippet{activeChapter.snippets.length !== 1 ? 's' : ''} hidden</span>
                     <span>•</span>
                     <span>{chapterWordCount} words</span>
                     <span>•</span>
@@ -1174,49 +1330,144 @@ export default function App() {
                 )}
 
                 {/* Snippets List */}
-                {!chapter.isCollapsed && (
-                  <div className="p-4 space-y-3">
-                    {chapter.snippets.map((snippet, snippetIndex) => (
+                {!activeChapter.isCollapsed && (
+                  <div className="p-4 space-y-4">
+                    {/* Bulk Operations Sticky Ribbon */}
+                    {selectedSnippetIds.size > 0 && (
+                      <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 animate-fade-in shrink-0">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-semibold text-indigo-300">
+                            {selectedSnippetIds.size} snippet{selectedSnippetIds.size > 1 ? 's' : ''} selected
+                          </span>
+                          <button 
+                            onClick={handleClearSelection}
+                            className="text-xs text-slate-400 hover:text-slate-200 underline"
+                          >
+                            Deselect All
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {/* Bulk Assign Speaker */}
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-400 font-medium">Speaker:</span>
+                            <select 
+                              onChange={(e) => {
+                                handleBulkAssignSpeaker(e.target.value || null);
+                                e.target.value = '';
+                              }}
+                              className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
+                            >
+                              <option value="">Assign Speaker...</option>
+                              {project.speakers.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Bulk Assign Scene */}
+                          {project.scenes && project.scenes.length > 0 && (
+                            <div className="flex items-center gap-1.5 text-xs">
+                              <span className="text-slate-400 font-medium">Scene:</span>
+                              <select 
+                                onChange={(e) => {
+                                  handleBulkAssignScene(e.target.value || null);
+                                  e.target.value = '';
+                                }}
+                                className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
+                              >
+                                <option value="">Assign Scene...</option>
+                                {project.scenes.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Bulk Move Chapter */}
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-400 font-medium">Move:</span>
+                            <select 
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleBulkMoveToChapter(e.target.value);
+                                  e.target.value = '';
+                                }
+                              }}
+                              className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
+                            >
+                              <option value="">Move to chapter...</option>
+                              {project.chapters.filter(c => c.id !== activeChapter.id).map(c => (
+                                <option key={c.id} value={c.id}>{c.title}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="w-px h-5 bg-slate-800 mx-1"></div>
+
+                          {/* Bulk Generate */}
+                          <button 
+                            onClick={handleBulkGenerate}
+                            className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold transition-colors shadow-md shadow-indigo-500/20"
+                          >
+                            <Wand2 className="w-3.5 h-3.5" /> Generate Selected
+                          </button>
+
+                          {/* Bulk Delete */}
+                          <button 
+                            onClick={handleBulkDelete}
+                            className="flex items-center gap-1.5 px-3 py-1 bg-red-600/20 hover:bg-red-500/35 text-red-400 rounded text-xs font-semibold transition-colors border border-red-500/20"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete Selected
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeChapter.snippets.map((snippet, snippetIndex) => (
                       <div 
                         key={snippet.id}
                         draggable
-                        onDragStart={(e) => handleSnippetDragStart(e, snippet.id, chapter.id)}
-                        onDragOver={(e) => handleSnippetDragOver(e, snippet.id, chapter.id)}
-                        onDrop={(e) => handleSnippetDrop(e, snippet.id, chapter.id)}
+                        onDragStart={(e) => handleSnippetDragStart(e, snippet.id, activeChapter.id)}
+                        onDragOver={(e) => handleSnippetDragOver(e, snippet.id, activeChapter.id)}
+                        onDrop={(e) => handleSnippetDrop(e, snippet.id, activeChapter.id)}
                       >
                         <SnippetEditor 
                           snippet={snippet}
-                          chapterId={chapter.id}
+                          chapterId={activeChapter.id}
                           index={snippetIndex}
-                          totalSnippets={chapter.snippets.length}
+                          totalSnippets={activeChapter.snippets.length}
                           speakers={project.speakers}
-                          chapterDefaultSpeakerId={chapter.defaultSpeakerId}
+                          scenes={project.scenes || []}
+                          chapterDefaultSpeakerId={activeChapter.defaultSpeakerId}
                           isPlaying={activePlayingId !== null && (activePlayingId === snippet.id || activePlayingId === snippet.activeGenerationId)}
                           isFocused={focusedSnippetId === snippet.id}
+                          isSelected={selectedSnippetIds.has(snippet.id)}
+                          onToggleSelect={() => handleToggleSelectSnippet(snippet.id)}
                           onFocus={() => {
                             setFocusedSnippetId(snippet.id);
-                            setFocusedChapterId(chapter.id);
+                            setFocusedChapterId(activeChapter.id);
                           }}
                           onUpdate={(updates) => {
-                            updateSnippetState(chapter.id, snippet.id, updates);
+                            updateSnippetState(activeChapter.id, snippet.id, updates);
                           }}
-                          onDelete={() => deleteSnippetState(chapter.id, snippet.id)}
-                          onMove={(dir) => moveSnippetState(chapter.id, snippetIndex, dir)}
-                          onSplit={(pos) => splitSnippetState(chapter.id, snippet.id, pos)}
-                          onJoinNext={() => joinSnippetWithNextState(chapter.id, snippet.id)}
-                          onAddNext={() => addSnippetState(chapter.id, snippetIndex)}
-                          onGenerate={() => handleGenerateSnippetAsync(chapter.id, snippet.id)}
+                          onDelete={() => deleteSnippetState(activeChapter.id, snippet.id)}
+                          onMove={(dir) => moveSnippetState(activeChapter.id, snippetIndex, dir)}
+                          onSplit={(pos) => splitSnippetState(activeChapter.id, snippet.id, pos)}
+                          onJoinNext={() => joinSnippetWithNextState(activeChapter.id, snippet.id)}
+                          onAddNext={() => addSnippetState(activeChapter.id, snippetIndex)}
+                          onGenerate={() => handleGenerateSnippetAsync(activeChapter.id, snippet.id)}
                           onPlay={() => playSnippetAudio(snippet)}
-                          onPlayFromHere={() => playFromSnippetById(chapter.id, snippet.id)}
+                          onPlayFromHere={() => playFromSnippetById(activeChapter.id, snippet.id)}
                           onStop={handleStopAudio}
-                          onExport={() => handleExportSnippetAudio(chapter.id, snippet.id)}
+                          onExport={() => handleExportSnippetAudio(activeChapter.id, snippet.id)}
                         />
                       </div>
                     ))}
                     
                     <button 
-                      onClick={() => addSnippetState(chapter.id, chapter.snippets.length - 1)}
-                      className="w-full py-2 border-2 border-dashed border-slate-800 rounded-lg text-slate-500 hover:text-slate-300 hover:border-slate-600 hover:bg-slate-800/30 transition-all flex items-center justify-center gap-2 text-sm"
+                      onClick={() => addSnippetState(activeChapter.id, activeChapter.snippets.length - 1)}
+                      className="w-full py-3 border-2 border-dashed border-slate-800 rounded-lg text-slate-500 hover:text-slate-300 hover:border-slate-600 hover:bg-slate-800/30 transition-all flex items-center justify-center gap-2 text-sm"
                     >
                       <Plus className="w-4 h-4" /> Add Snippet
                     </button>
@@ -1224,14 +1475,7 @@ export default function App() {
                 )}
               </div>
             );
-          })}
-
-          <button 
-            onClick={addChapterState}
-            className="w-full py-4 border-2 border-dashed border-slate-800 rounded-xl text-slate-400 hover:text-slate-200 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all flex items-center justify-center gap-2 font-medium"
-          >
-            <Plus className="w-5 h-5" /> Add Chapter
-          </button>
+          })()}
           
           {/* Bottom padding */}
           <div className="h-12"></div>
@@ -1254,259 +1498,297 @@ export default function App() {
             className="bg-slate-900 flex flex-col h-full shrink-0 border-l border-slate-800"
             style={{ width: sidebarWidth }}
           >
-            {/* Settings Tab Header */}
-            <div className="h-16 border-b border-slate-800 flex items-center px-6 bg-slate-950/50 shrink-0">
-              <h2 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-slate-400" />
-                Project Settings
+            {/* Sidebar Header */}
+            <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950/50 shrink-0">
+              <h2 className="text-md font-semibold text-slate-200 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-indigo-400" />
+                <span>Studio Panel</span>
               </h2>
+              <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-1.5 text-slate-400 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 rounded transition-colors"
+                title="Full Settings Dialog"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               
-              {/* Context-Sensitive Generation History */}
-              {focusedSnippet && (
-                <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-                  <button 
-                    onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                    className="w-full flex items-center justify-between p-4 bg-slate-900/50 hover:bg-slate-800/50 transition-colors"
-                  >
-                    <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                      <History className="w-4 h-4 text-indigo-400" /> Generation History
-                    </h3>
-                    {isHistoryCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronUp className="w-4 h-4 text-slate-500" />}
-                  </button>
-                  
-                  {!isHistoryCollapsed && (
-                    <div className="p-4 space-y-3 border-t border-slate-800 max-h-80 overflow-y-auto">
-                      {focusedSnippet.generations.length === 0 ? (
-                        <div className="text-center py-4 text-xs text-slate-500 italic">
-                          No generations yet for this snippet.
-                        </div>
-                      ) : (
-                        focusedSnippet.generations.map((gen) => {
-                          const isGenPlaying = activePlayingId === gen.id;
-                          const isGenActive = focusedSnippet.activeGenerationId === gen.id;
-                          return (
-                            <div 
-                              key={gen.id} 
-                              onClick={() => handleSelectGeneration(gen)}
-                              className={`p-2.5 rounded-lg border text-xs transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                                isGenActive 
-                                  ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200' 
-                                  : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400'
-                              }`}
-                            >
-                              <div className="flex-1 min-w-0 space-y-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-semibold text-slate-300">
-                                    {new Date(gen.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                  </span>
-                                  <span className="text-[10px] opacity-60">({gen.model.replace('-tts', '')})</span>
-                                </div>
-                                <div className="truncate text-[11px] italic opacity-80">"{gen.text}"</div>
-                                <div className="text-[10px] opacity-60">Duration: {formatDuration(gen.duration)}</div>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isGenPlaying) handleStopAudio();
-                                    else playSnippetAudioById(gen.id);
-                                  }}
-                                  className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                                >
-                                  {isGenPlaying ? <Square className="w-3.5 h-3.5 fill-current text-red-400" /> : <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />}
-                                </button>
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteGeneration(gen.id);
-                                  }}
-                                  className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-red-400"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* Generation Settings */}
-              <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-                <button 
-                  onClick={() => setIsGenerationCollapsed(!isGenerationCollapsed)}
-                  className="w-full flex items-center justify-between p-4 bg-slate-900/50 hover:bg-slate-800/50 transition-colors"
-                >
-                  <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Wand2 className="w-4 h-4 text-indigo-400" /> Generation
+              {/* Chapters List */}
+              <section className="bg-slate-950/50 border border-slate-800/80 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between p-3 bg-slate-900/40 border-b border-slate-800/60">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-400" /> Chapters
                   </h3>
-                  {isGenerationCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronUp className="w-4 h-4 text-slate-500" />}
-                </button>
-                
-                {!isGenerationCollapsed && (
-                  <div className="p-4 space-y-4 border-t border-slate-800">
-                    <div className="space-y-1.5">
-                      <label className="text-xs text-slate-500">Model</label>
-                      <select 
-                        value={project.settings.model}
-                        onChange={(e) => updateProjectState({ settings: { ...project.settings, model: e.target.value } })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                      >
-                        {GEMINI_MODELS.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs text-slate-500">Encoding</label>
-                        <select 
-                          value={project.settings.encoding}
-                          onChange={(e) => updateProjectState({ settings: { ...project.settings, encoding: e.target.value as any } })}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                        >
-                          <option value="M4A">M4A</option>
-                          <option value="OGG_OPUS">OGG OPUS</option>
-                          <option value="MP3">MP3</option>
-                          <option value="WAV">WAV (LINEAR16)</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs text-slate-500">Sample Rate</label>
-                        <select 
-                          value={project.settings.sampleRate}
-                          onChange={(e) => updateProjectState({ settings: { ...project.settings, sampleRate: e.target.value as any } })}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-                        >
-                          <option value="16000">16 kHz</option>
-                          <option value="24000">24 kHz</option>
-                          <option value="44100">44.1 kHz</option>
-                          <option value="48000">48 kHz</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {/* Speakers Management */}
-              <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between p-4 bg-slate-900/50 border-b border-slate-800">
                   <button 
-                    onClick={() => setIsSpeakersCollapsed(!isSpeakersCollapsed)}
-                    className="flex-1 flex items-center justify-between hover:text-slate-100 transition-colors text-left"
+                    onClick={addChapterState}
+                    className="p-1 hover:bg-slate-800 rounded text-indigo-400 hover:text-indigo-300 transition-colors"
+                    title="Add Chapter"
                   >
-                    <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                      <Users className="w-4 h-4 text-indigo-400" /> Speakers
-                    </h3>
-                    {isSpeakersCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500 mr-2" /> : <ChevronUp className="w-4 h-4 text-slate-500 mr-2" />}
-                  </button>
-                  <button onClick={addSpeakerState} className="p-1 hover:bg-slate-700 rounded text-indigo-400 hover:text-indigo-300 transition-colors" title="Add Speaker">
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                {!isSpeakersCollapsed && (
-                  <div className="p-4 space-y-4">
-                    {project.speakers.map((speaker, speakerIndex) => {
-                      const speakerStyles = getSpeakerStyles(speaker.id, project.speakers);
-                      return (
-                        <div 
-                          key={speaker.id} 
-                          style={speakerStyles.customStyle}
-                          className="group/speaker border rounded-lg p-3 space-y-3 relative transition-colors"
-                        >
-                          {/* Speaker Actions */}
-                          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/speaker:opacity-100 transition-opacity">
-                            <IconButton icon={ArrowUp} onClick={() => moveSpeakerState(speakerIndex, 'up')} className="!p-1" disabled={speakerIndex === 0} title="Move Up" />
-                            <IconButton icon={ArrowDown} onClick={() => moveSpeakerState(speakerIndex, 'down')} className="!p-1" disabled={speakerIndex === project.speakers.length - 1} title="Move Down" />
-                            <div className="w-px h-3 bg-slate-700 mx-0.5"></div>
-                            <button 
-                              onClick={() => deleteSpeakerState(speaker.id)}
-                              className="p-1 text-slate-500 hover:text-red-400 transition-colors"
-                              title="Delete Speaker"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          
-                          <div className="flex items-center gap-3 w-10/12">
-                            <input 
-                              type="text" 
-                              value={speaker.name}
-                              onChange={(e) => updateSpeakerState(speaker.id, { name: e.target.value })}
-                              placeholder="Character Name"
-                              className="bg-transparent font-medium text-slate-200 focus:outline-none focus:border-b focus:border-indigo-500 flex-1 pb-1"
+                <div className="p-2 space-y-1.5 max-h-64 overflow-y-auto">
+                  {project.chapters.map((chapter, index) => {
+                    const isActive = chapter.id === activeChapterId || (!activeChapterId && index === 0);
+                    const wordCount = chapter.snippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
+                    return (
+                      <div 
+                        key={chapter.id}
+                        onClick={() => {
+                          setActiveChapterId(chapter.id);
+                          handleClearSelection();
+                        }}
+                        className={`group/chapter-row flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border text-xs ${
+                          isActive 
+                            ? 'bg-indigo-950/30 border-indigo-500/40 text-slate-100' 
+                            : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="font-mono text-[10px] opacity-40 shrink-0">CH {index + 1}</span>
+                          <span className="truncate font-medium">{chapter.title || "Untitled Chapter"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] opacity-50 bg-slate-900 border border-slate-850 px-1.5 py-0.5 rounded font-mono">
+                            {wordCount}W
+                          </span>
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover/chapter-row:opacity-100 transition-opacity">
+                            <IconButton 
+                              icon={ArrowUp} 
+                              onClick={(e) => { e.stopPropagation(); moveChapterState(index, 'up'); }} 
+                              className="!p-0.5 text-slate-500 hover:text-slate-300" 
+                              disabled={index === 0} 
                             />
-                            <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title="Mark as Narrator">
-                              <input 
-                                type="checkbox" 
-                                checked={!!speaker.isNarrator}
-                                onChange={(e) => updateSpeakerState(speaker.id, { isNarrator: e.target.checked })}
-                                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-950 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-900"
-                              />
-                              <span className="text-xs text-slate-400 font-medium">Narrator</span>
-                            </label>
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <label className="text-xs text-slate-500 font-medium">Voice Model</label>
-                            <div className="flex items-center gap-2">
-                              <select 
-                                value={speaker.voice}
-                                style={speakerStyles.customControlStyle}
-                                onChange={(e) => updateSpeakerState(speaker.id, { voice: e.target.value })}
-                                className="flex-1 border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
-                              >
-                                {GEMINI_VOICES
-                                .sort((a,b) => a.name.localeCompare(b.name))
-                                .map(v => (
-                                  <option key={v.id} value={v.id}>{`${v.name} ${v.gender === "Female" ? "♀" : "♂"}`}</option>
-                                ))}
-                              </select>
-                              <button 
-                                onClick={() => previewingSpeakerId === speaker.id ? handleStopAudio() : handlePreviewVoice(speaker)}
-                                className={`p-1.5 rounded border transition-colors ${
-                                  previewingSpeakerId === speaker.id 
-                                    ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400' 
-                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-500/50'
-                                }`}
-                                title="Preview Voice"
-                              >
-                                {previewingSpeakerId === speaker.id ? <Square className="w-4 h-4 fill-current" /> : <Volume2 className="w-4 h-4" />}
-                              </button>
-                            </div>
-                          </div>
-
-
-
-                          <div className="space-y-1">
-                            <label className="text-xs text-slate-500">Style / Instructions</label>
-                            <textarea 
-                              value={speaker.style}
-                              style={speakerStyles.customControlStyle}
-                              onChange={(e) => updateSpeakerState(speaker.id, { style: e.target.value })}
-                              placeholder="e.g., Whispery, excited, slow pace..."
-                              className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500 resize-y min-h-[4rem] max-h-64"
+                            <IconButton 
+                              icon={ArrowDown} 
+                              onClick={(e) => { e.stopPropagation(); moveChapterState(index, 'down'); }} 
+                              className="!p-0.5 text-slate-500 hover:text-slate-300" 
+                              disabled={index === project.chapters.length - 1} 
+                            />
+                            <IconButton 
+                              icon={Trash2} 
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                if (window.confirm("Delete chapter?")) {
+                                  deleteChapterState(chapter.id);
+                                  if (isActive) {
+                                    if (project.chapters.length > 1) {
+                                      const nextIdx = index === 0 ? 1 : index - 1;
+                                      setActiveChapterId(project.chapters[nextIdx].id);
+                                    } else {
+                                      setActiveChapterId(null);
+                                    }
+                                  }
+                                }
+                              }} 
+                              className="!p-0.5 text-slate-500 hover:text-red-400" 
                             />
                           </div>
                         </div>
-                      );
-                    })}
-                    {project.speakers.length === 0 && (
-                      <div className="text-center py-6 text-sm text-slate-500 border border-dashed border-slate-800 rounded-lg">
-                        No speakers defined.
+                      </div>
+                    );
+                  })}
+                  {project.chapters.length === 0 && (
+                    <div className="text-center py-4 text-xs text-slate-600 italic">
+                      No chapters defined.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Speakers List */}
+              <section className="bg-slate-950/50 border border-slate-800/80 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between p-3 bg-slate-900/40 border-b border-slate-800/60">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" /> Speakers
+                  </h3>
+                  <button 
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-1 hover:bg-slate-800 rounded text-indigo-400 hover:text-indigo-300 transition-colors"
+                    title="Manage Speakers in Settings"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="p-2 space-y-1.5 max-h-64 overflow-y-auto">
+                  {project.speakers.map((speaker) => {
+                    const speakerStyles = getSpeakerStyles(speaker.id, project.speakers);
+                    const isFocSnippetMatching = focusedSnippetId && (() => {
+                      const activeCh = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
+                      const sn = activeCh?.snippets.find(s => s.id === focusedSnippetId);
+                      return sn && (sn.speakerId === speaker.id || (!sn.speakerId && activeCh.defaultSpeakerId === speaker.id));
+                    })();
+
+                    return (
+                      <div 
+                        key={speaker.id}
+                        onClick={() => {
+                          if (selectedSnippetIds.size > 0) {
+                            handleBulkAssignSpeaker(speaker.id);
+                          } else if (focusedSnippetId) {
+                            const activeCh = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
+                            if (activeCh) {
+                              updateSnippetState(activeCh.id, focusedSnippetId, { speakerId: speaker.id });
+                            }
+                          }
+                        }}
+                        className={`group/speaker-row flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border text-xs ${
+                          isFocSnippetMatching 
+                            ? 'bg-emerald-950/20 border-emerald-500/30 text-slate-200' 
+                            : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                        }`}
+                        title="Click to apply to selected or focused snippet"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          {/* Color Dot avatar */}
+                          <div 
+                            className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+                            style={{ 
+                              backgroundColor: speakerStyles.customStyle.color || '#6366f1' 
+                            }}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{speaker.name}</div>
+                            <div className="text-[10px] opacity-50 truncate">{speaker.voice}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Play Preview button */}
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (previewingSpeakerId === speaker.id) {
+                                handleStopAudio();
+                              } else {
+                                handlePreviewVoice(speaker);
+                              }
+                            }}
+                            className={`p-1 rounded text-xs border ${
+                              previewingSpeakerId === speaker.id 
+                                ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400' 
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-500/50'
+                            }`}
+                            title="Preview Speaker Voice"
+                          >
+                            {previewingSpeakerId === speaker.id ? <Square className="w-3.5 h-3.5 fill-current" /> : <Volume2 className="w-3.5 h-3.5" />}
+                          </button>
+
+                          {/* "G" Trigger generation for speaker */}
+                          <button 
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Generate audio for all snippets of ${speaker.name} in this chapter?`)) {
+                                const activeCh = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
+                                if (!activeCh) return;
+                                const matching = activeCh.snippets.filter(s => (s.speakerId || activeCh.defaultSpeakerId) === speaker.id);
+                                if (matching.length === 0) {
+                                  alert("No snippets found with this speaker.");
+                                  return;
+                                }
+                                for (const sn of matching) {
+                                  await handleGenerateSnippetAsync(activeCh.id, sn.id);
+                                }
+                              }
+                            }}
+                            className="p-1 rounded text-xs border bg-slate-900 border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-indigo-400 font-bold hover:text-indigo-300"
+                            title="Generate All snippets for this speaker in active chapter"
+                          >
+                            G
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {project.speakers.length === 0 && (
+                    <div className="text-center py-4 text-xs text-slate-600 italic">
+                      No speakers defined.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Context-Sensitive Generation History */}
+              {focusedSnippetId && (() => {
+                const activeCh = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
+                const focusedSnippet = activeCh?.snippets.find(s => s.id === focusedSnippetId);
+                if (!focusedSnippet) return null;
+                return (
+                  <section className="bg-slate-950/50 border border-slate-800/80 rounded-xl overflow-hidden">
+                    <button 
+                      onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                      className="w-full flex items-center justify-between p-3 bg-slate-900/40 hover:bg-slate-800/30 transition-colors"
+                    >
+                      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <History className="w-3.5 h-3.5 text-indigo-400" /> Generation History
+                      </h3>
+                      {isHistoryCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" /> : <ChevronUp className="w-3.5 h-3.5 text-slate-500" />}
+                    </button>
+                    
+                    {!isHistoryCollapsed && (
+                      <div className="p-2 space-y-2 border-t border-slate-800 max-h-60 overflow-y-auto">
+                        {focusedSnippet.generations.length === 0 ? (
+                          <div className="text-center py-4 text-[11px] text-slate-600 italic">
+                            No generations yet for this snippet.
+                          </div>
+                        ) : (
+                          focusedSnippet.generations.map((gen) => {
+                            const isGenPlaying = activePlayingId === gen.id;
+                            const isGenActive = focusedSnippet.activeGenerationId === gen.id;
+                            return (
+                              <div 
+                                key={gen.id} 
+                                onClick={() => handleSelectGeneration(gen)}
+                                className={`p-2 rounded border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                  isGenActive 
+                                    ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200' 
+                                    : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400'
+                                }`}
+                              >
+                                <div className="flex-1 min-w-0 space-y-0.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-semibold text-slate-300">
+                                      {new Date(gen.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                    </span>
+                                    <span className="text-[9px] opacity-65">({gen.model.replace('-tts', '')})</span>
+                                  </div>
+                                  <div className="truncate text-[10px] italic opacity-85">"{gen.text}"</div>
+                                  <div className="text-[9px] opacity-65">Duration: {formatDuration(gen.duration)}</div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isGenPlaying) handleStopAudio();
+                                      else playSnippetAudioById(gen.id);
+                                    }}
+                                    className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                  >
+                                    {isGenPlaying ? <Square className="w-3.5 h-3.5 fill-current text-red-400" /> : <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />}
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteGeneration(gen.id);
+                                    }}
+                                    className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-red-400"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-              </section>
+                  </section>
+                );
+              })()}
 
             </div>
           </div>
@@ -1532,9 +1814,12 @@ interface SnippetEditorProps {
   index: number;
   totalSnippets: number;
   speakers: Speaker[];
+  scenes?: Scene[];
   chapterDefaultSpeakerId: string | null;
   isPlaying: boolean;
   isFocused: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
   onFocus: () => void;
   onUpdate: (updates: Partial<Snippet>) => void;
   onDelete: () => void;
@@ -1554,9 +1839,12 @@ function SnippetEditor({
   index,
   totalSnippets,
   speakers,
+  scenes = [],
   chapterDefaultSpeakerId,
   isPlaying,
   isFocused,
+  isSelected,
+  onToggleSelect,
   onFocus,
   onUpdate,
   onDelete,
@@ -1630,7 +1918,15 @@ function SnippetEditor({
         onClick={onFocus}
         className={`group flex items-center gap-3 p-2 rounded-lg border transition-colors ${borderStyle} ${isPlaying ? 'bg-indigo-900/20 border-indigo-500/50' : 'bg-slate-950 hover:border-slate-700'}`}
       >
-        <IconButton icon={ChevronRight} onClick={() => onUpdate({ isCollapsed: false })} className="!p-0.5 text-slate-500" title="Expand Snippet" />
+        <input 
+          type="checkbox" 
+          checked={isSelected}
+          onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
+          title="Select Snippet"
+        />
+        <IconButton icon={ChevronRight} onClick={(e: any) => { e.stopPropagation(); onUpdate({ isCollapsed: false }); }} className="!p-0.5 text-slate-500" title="Expand Snippet" />
         
         <div 
           className="flex-1 flex items-center gap-3 overflow-hidden cursor-pointer" 
@@ -1682,6 +1978,14 @@ function SnippetEditor({
       
       {/* Left Action Bar */}
       <div className="flex flex-col items-center justify-start pt-1 gap-2">
+        <input 
+          type="checkbox" 
+          checked={isSelected}
+          onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer"
+          title="Select Snippet"
+        />
         <div className="cursor-grab active:cursor-grabbing opacity-40 hover:opacity-100 transition-opacity">
           <GripVertical className="w-4 h-4 text-slate-400" />
         </div>
@@ -1709,6 +2013,20 @@ function SnippetEditor({
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
+            
+            {/* Scene Selector */}
+            {scenes && scenes.length > 0 && (
+              <select 
+                value={snippet.sceneId || ''}
+                onChange={(e) => onUpdate({ sceneId: e.target.value || undefined })}
+                className={`text-xs rounded px-2 py-1 focus:outline-none border ${snippet.sceneId ? 'bg-teal-950 text-teal-300 border-teal-800' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+              >
+                <option value="">No Scene</option>
+                {scenes.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
             
             {effectiveSpeaker && (
               <span 

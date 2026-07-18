@@ -36,9 +36,16 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isSpeedOpen, setIsSpeedOpen] = useState(false);
   const [amplitudes, setAmplitudes] = useState<number[]>([]);
-  const [isPlayerCollapsed, setIsPlayerCollapsed] = useState(false);
+  const [isPlayerCollapsed, setIsPlayerCollapsed] = useState(true);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
+
+  // Auto-expand when active audio playback starts
+  useEffect(() => {
+    if (activePlayingId) {
+      setIsPlayerCollapsed(false);
+    }
+  }, [activePlayingId]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -280,7 +287,7 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
     setHoveredTime(null);
   };
 
-  if (!effectivePlayingId || !playingSnippet) return null;
+  const hasSelectedSnippet = !!(effectivePlayingId && playingSnippet);
 
   const playbackPercent = duration > 0 ? (currentTime / duration) : 0;
   const hoveredPercent = hoveredTime !== null && duration > 0 ? (hoveredTime / duration) : 0;
@@ -321,21 +328,25 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
         {/* Collapse and Title Bar */}
         <div className="flex items-center justify-between border-b border-slate-800/50 pb-2">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 shrink-0">
-              <Sparkles className="w-4 h-4 animate-pulse" />
+            <span className={`p-1.5 rounded border shrink-0 ${hasSelectedSnippet ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+              <Sparkles className={`w-4 h-4 ${hasSelectedSnippet ? 'animate-pulse' : ''}`} />
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-slate-400 tracking-wide uppercase">
-                  {playingChapter?.title || 'Active Segment'}
+                  {hasSelectedSnippet ? (playingChapter?.title || 'Active Segment') : 'No Active Segment'}
                 </span>
-                <span className="text-slate-700">•</span>
-                <span className="text-xs font-medium text-indigo-300">
-                  Speaker: {playingSpeaker?.name || 'Narrator'} ({playingSpeaker?.voice || 'Default'})
-                </span>
+                {hasSelectedSnippet && (
+                  <>
+                    <span className="text-slate-700">•</span>
+                    <span className="text-xs font-medium text-indigo-300">
+                      Speaker: {playingSpeaker?.name || 'Narrator'} ({playingSpeaker?.voice || 'Default'})
+                    </span>
+                  </>
+                )}
               </div>
-              <p className="text-sm text-slate-100 font-medium truncate italic mt-0.5 max-w-2xl">
-                "{activeText}"
+              <p className={`text-sm font-medium truncate mt-0.5 max-w-2xl ${hasSelectedSnippet ? 'text-slate-100 italic' : 'text-slate-500'}`}>
+                {hasSelectedSnippet ? `"${activeText}"` : 'Select a snippet with generated audio and click play to listen.'}
               </p>
             </div>
           </div>
@@ -351,7 +362,8 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
             </button>
             <button 
               onClick={onStop}
-              className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-800 transition-colors"
+              disabled={!hasSelectedSnippet}
+              className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-800 transition-colors disabled:opacity-30 disabled:pointer-events-none"
               title="Stop playback"
             >
               <Square className="w-4 h-4 fill-current" />
@@ -366,7 +378,8 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
           <div className="md:col-span-3 flex items-center justify-center md:justify-start gap-4">
             <button 
               onClick={() => skipTime(-5)}
-              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors"
+              disabled={!hasSelectedSnippet}
+              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors disabled:opacity-30 disabled:pointer-events-none"
               title="Rewind 5s"
             >
               <RotateCcw className="w-4 h-4" />
@@ -374,7 +387,8 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
 
             <button 
               onClick={togglePlayPause}
-              className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center transform active:scale-95"
+              disabled={!hasSelectedSnippet}
+              className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center transform active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 disabled:shadow-none disabled:pointer-events-none"
               title={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
@@ -382,7 +396,8 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
 
             <button 
               onClick={() => skipTime(5)}
-              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors"
+              disabled={!hasSelectedSnippet}
+              className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-full transition-colors disabled:opacity-30 disabled:pointer-events-none"
               title="Fast Forward 5s"
             >
               <RotateCw className="w-4 h-4" />
@@ -391,14 +406,18 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
             <div className="text-xs font-mono text-slate-400 ml-2">
               <span>{formatDuration(currentTime)}</span>
               <span className="mx-1 text-slate-600">/</span>
-              <span>{formatDuration(duration || activeGen?.duration || 0)}</span>
+              <span>{formatDuration(hasSelectedSnippet ? (duration || activeGen?.duration || 0) : 0)}</span>
             </div>
           </div>
 
           {/* Interactive Visual Waveform (6 cols) */}
           <div className="md:col-span-6 flex flex-col gap-1 w-full position-relative">
             <div className="relative h-12 w-full bg-slate-950/40 rounded-lg border border-slate-800/40 px-2 flex items-center">
-              {isLoadingAudio ? (
+              {!hasSelectedSnippet ? (
+                <div className="w-full flex items-center justify-center text-xs text-slate-600 italic">
+                  No active audio loaded
+                </div>
+              ) : isLoadingAudio ? (
                 <div className="w-full flex items-center justify-center gap-2 text-xs text-slate-500 italic">
                   <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
                   <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.15s' }} />
@@ -539,7 +558,8 @@ export default function WaveformPlayer({ activePlayingId, project, onStop, isSid
             <div className="relative">
               <button 
                 onClick={() => setIsSpeedOpen(!isSpeedOpen)}
-                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors"
+                disabled={!hasSelectedSnippet}
+                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                 title="Playback Speed"
               >
                 <Gauge className="w-3.5 h-3.5 text-slate-400" />

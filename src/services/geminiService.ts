@@ -11,14 +11,15 @@ export async function generateTTS(
   text: string, 
   voiceName: string, 
   styleInstruction: string | undefined, 
-  modelName: string
+  modelName: string,
+  options?: { apiKey?: string; temperature?: number }
 ): Promise<{data: string, mimeType: string}> {
   if (!text.trim()) {
     throw new Error("Text is empty");
   }
 
   try {
-    console.info(`[Client] Requesting TTS. Model: ${modelName}, Voice: ${voiceName}`);
+    console.info(`[Client] Requesting TTS. Model: ${modelName}, Voice: ${voiceName}, Temp: ${options?.temperature ?? 'default'}`);
     
     const response = await fetch("/api/tts/generate", {
       method: "POST",
@@ -30,6 +31,8 @@ export async function generateTTS(
         voiceName,
         styleInstruction,
         modelName,
+        apiKey: options?.apiKey,
+        temperature: options?.temperature,
       }),
     });
 

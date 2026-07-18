@@ -32,7 +32,7 @@ You can then re-load this data with the controls at the top.
 ## Example
 The below example would produce the project seen in the screenshot above.
 
-```md
+```markdown
 # The Great American Novel
 
 ## Characters
@@ -57,40 +57,7 @@ He announced his presence with grandeur as was directed in his line! Wow, this g
 
 ## Planned Features
 
-- [x] Each snippet and chapter displays the cumulative number of characters, words, and approximate request token count.
-- [x] Speaker previewing
-- [x] Full-chapter and project audio export
-- [ ] Flagging snippets when they likely won't generate -- the Vertex API or Gemini models *really* do not like snippets under a certain length, or that only contain sounds like [cough] [snort] [laugh] etc.
-   - [ ] This will require research to determine what variables go into the API/model rejecting a prompt.
-- [ ] A statusbar with project stats and status messages, including:
-   - [ ] A more accurate token count that takes the full prompt with instructions into account
-   - [ ] Current cached audio size
-   - [ ] Estimated time required to generate the audio for the full project
-   - [ ] Estimated full audio file size based on the selected format
-   - [ ] Telemetry-like info such as cumulative tokens used for the project, possibly with a price estimate
-- [ ] Single load / save project that automatically loads the audio sidecar file (if it exists), and if it doesn't, will show a modal dialogue of some sort warning about this, as well as a small button somewhere to load an audio sidecar file.
-- [ ] A full preferences dialogue to make room on the sidebar for only speakers and audio takes, as well as saving preferences separate to the project file.
-- [ ] Export audio encoding, primarily M4B/AAC, with...
-   - [ ] M4A
-   - [ ] MP3
-   - [ ] FLAC
-   - [ ] OGG Opus and/or Vorbis
-   - [ ] Perhaps two separate settings: container and codec, rejecting unsupported combinations and defaulting.
-- [ ] A re-mappable keyboard shortcut navigation handler.
-- [ ] A customizable theme format with automatic dark and light defaults.
-- [ ] An option for sticky chapter headings.
-- [ ] A quick navigation feature to focus a snippet matching a text string
-- [ ] If this is ever hosted somewhere public, accepting a Gemini API key or else authentication with a Google account with Gemini / Cloud access, checking to see if it has access to the Gemini TTS voices and even displaying its current quota or whatever. Or even just displaying my *own* quota lol.
-- [ ] Parallel generation requests... assuming that's possible with the same key. I'll have to look into that.
-- [ ] An API endpoint to use the asynchronous audio generation in order to start and stop previewing without having to generate the full text.
-- [ ] Integrating the multi-speaker audio generation API endpoint to see if it works better for generating full chapters (within the API limits) as each character can be separately defined, so the snippet text could be joined into a single script with speaker attribution, and the speakers used as the ... well, speakers used. This could be *VERY* good for full-chapter or at least multi-snippet generation to prevent drift.
-- [ ] More performant rendering, culling off-screen elements until they're within a certain range of the client area.
-- [ ] A *very* rough time-to-generate estimate for each snippet, chapter, and full project.
-   - [ ] I'm currently collecting data to *very roughly* estimate the average time it takes to make an API request per-character, word, or token.
-- [ ] A progress indicator w/ *approximate* time left on generation, based on the above data.
-- [ ] Currently, each snippet is generated independently, i.e. one snippet : one API call. So, there may be voice drift if the speaker instructions are too general.
-- [ ] I'm considering implementing a way to generate multiple snippets with a single API call using Gemini's multi-speaker endpoint which would result in far less voice drift.
-The Agent Platform API **limit** for single-speaker API requests is **8kb** of text (speaker instructions + text), and the response audio duration is **10m55s**. It may be different for the multi-speaker endpoint.
+See [TODO.md](./TODO.md) for details.
 
 ## Notes
 

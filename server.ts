@@ -8,9 +8,10 @@ import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
 dotenv.config();
-import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold, GenerateContentResponsePromptFeedback } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import { VoiceName } from "./src/types.js";
+import { parseMarkdown } from "./src/services/markdownParser";
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -176,7 +177,19 @@ const cleanEnvVal = (val: string | undefined): string => {
 
 // Lazy load Gemini API
 let geminiClientCache: GoogleGenAI | null = null;
-function getGeminiClient() {
+function getGeminiClient(apiKeyOverride?: string) {
+  if (apiKeyOverride && apiKeyOverride.trim()) {
+    console.log("[Server] Initializing temporary GoogleGenAI with custom client API Key");
+    return new GoogleGenAI({
+      apiKey: apiKeyOverride.trim(),
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build-custom',
+        }
+      }
+    });
+  }
+
   const useVertexVal = cleanEnvVal(process.env.USE_VERTEX_AI);
   const isVertex = useVertexVal === "true";
 
@@ -251,6 +264,8 @@ app.post("/api/tts/generate", async (req, res) => {
   const emotion = req.body.emotion;
   const customInstructions = req.body.customInstructions || req.body.styleInstruction;
   const model = req.body.model || req.body.modelName;
+  const apiKeyOverride = req.body.apiKey; // client override api key
+  const temperature = req.body.temperature !== undefined ? parseFloat(req.body.temperature) : undefined;
   
   if (!text || !speaker) {
     return res.status(400).json({ error: "Missing required parameters: text and speaker are mandatory." });
@@ -260,43 +275,6 @@ app.post("/api/tts/generate", async (req, res) => {
   
   // Define style directions based on settings
   const styleNotes: string[] = [];
-  if (pacing === 'slow') {
-    styleNotes.push("speak slowly, with significant pauses between sentences and emotional gravity");
-  } else if (pacing === 'fast') {
-    styleNotes.push("speak fast, in a hurried, rapid pacing with minimal pause");
-  }
-
-  if (pitch === 'low') {
-    styleNotes.push("use a low pitch and deep resonant register");
-  } else if (pitch === 'high') {
-    styleNotes.push("use a high pitch, higher vocal range");
-  }
-
-  switch (emotion) {
-    case 'laughing':
-      styleNotes.push("giggle occasionally, amused, say with a chuckle in the words");
-      break;
-    case 'sad':
-      styleNotes.push("sadly, with a breaking voice, tearful, choking up");
-      break;
-    case 'excited':
-      styleNotes.push("extremely enthusiastic, bright, cheerful and highly energetic");
-      break;
-    case 'whispering':
-      styleNotes.push("whisper very quietly, hush, conspiratorial tone, strictly whisper");
-      break;
-    case 'shouting':
-      styleNotes.push("speak in a dramatic, shouting, strong powerful voice");
-      break;
-    case 'nominous':
-      styleNotes.push("spooky, dark, slow warning whisper tone, ominous, cinematic mystery narrator style");
-      break;
-    case 'gasping':
-      styleNotes.push("panicked, gasping for breath between words, short quick breathing sounds");
-      break;
-    default:
-      break;
-  }
 
   if (customInstructions && customInstructions.trim()) {
     styleNotes.push(customInstructions.trim());
@@ -304,23 +282,26 @@ app.post("/api/tts/generate", async (req, res) => {
 
   let formattedPrompt = text;
   if (styleNotes.length > 0) {
-    formattedPrompt = `[Speaking instructions: ${styleNotes.join(", ")}]\n${text.split("\n").join(" ")}`;
+    formattedPrompt = `[Instructions: ${styleNotes.join(", ")}]\n${text.split("\n").join(" ")}`;
   }
 
-  console.log(`Synthesizing Block with Speaker [${speaker}] using model [${selectedModel}]: "${formattedPrompt}"`);
+  console.log(`[Server] Synthesizing Block with Speaker [${speaker}] using model [${selectedModel}] and temperature [${temperature ?? 'default'}]: "${formattedPrompt}"`);
 
-  const ai = getGeminiClient();
+  const ai = getGeminiClient(apiKeyOverride);
   if (!ai) {
     return res.status(500).json({ error: "Gemini API Client not configured. Please set the GEMINI_API_KEY environment variable." });
   }
 
   try {
+    // track request time
+    const start = performance.now();
     // Try standard UPPERCASE responseModalities first
     let response = await ai.models.generateContent({
       model: selectedModel,
       contents: [{ role: "user", parts: [{ text: formattedPrompt }] }],
       config: {
         responseModalities: [Modality.AUDIO],
+        temperature: typeof temperature === 'number' && !isNaN(temperature) ? temperature : undefined,
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
@@ -364,6 +345,8 @@ app.post("/api/tts/generate", async (req, res) => {
       const finishReason = firstCandidate?.finishReason;
       const safetyRatings = firstCandidate?.safetyRatings;
       const promptFeedback = response.promptFeedback;
+      const promptFeedbackReason = response.promptFeedback?.blockReason;
+      const promptFeedbackMessage = response.promptFeedback?.blockReasonMessage;
 
       const debugDetails: any = {
         responseId: responseID,
@@ -376,7 +359,12 @@ app.post("/api/tts/generate", async (req, res) => {
         debugDetails.candidateSafetyRatings = safetyRatings;
       }
       if (promptFeedback) {
-        debugDetails.promptFeedback = promptFeedback;
+        if (promptFeedbackReason === "PROHIBITED_CONTENT") {
+          debugDetails.promptFeedback = "The model thought the given text was too short or it couldn't understand it, so it returned a *false positive* promptFeedback.";
+        }
+        else {
+          debugDetails.promptFeedback = `${promptFeedbackReason}: ${promptFeedbackMessage}`;
+        }
       }
 
       console.warn("[Server] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
@@ -388,8 +376,20 @@ app.post("/api/tts/generate", async (req, res) => {
       });
     }
 
-    const tokenCount = response.usageMetadata.totalTokenCount;
-    console.info("Response token usage: ", tokenCount);
+    // log request time
+    const elapsedMs = performance.now() - start;
+    const elapsedSec = elapsedMs / 1000;
+
+    const charCount = text.length;
+    const wordCount = text.trim().split(/\s+/).length;
+    const reqCharCount = formattedPrompt.length;
+    const reqWordCount = formattedPrompt.split(/\s+/).length;
+    const tokenCount: any = {
+      prompt: response.usageMetadata.promptTokenCount,
+      response: response.usageMetadata.candidatesTokenCount,
+      total: response.usageMetadata.totalTokenCount
+    };
+    console.info(`Response [${elapsedSec.toFixed(3)}]: ${charCount}->${reqCharCount} char; ${wordCount}->${reqWordCount} words. Token counts: ${tokenCount.prompt} prompt; ${tokenCount.response} response; ${tokenCount.total} total.`);
     
     return res.json({
       success: true,
@@ -415,10 +415,10 @@ app.post("/api/project/import-parse", async (req, res) => {
 
   const ai = getGeminiClient();
   if (!ai) {
-    // If no AI client available, fallback parsing with custom JS parser
-    console.log("No key found, parsing script using local text-rules");
-    const fallbackList = fallbackScriptParser(screenplayText);
-    return res.json({ blocks: fallbackList });
+    // If no AI client available, error
+    console.warn("No key found, parsing script using markdown importer");
+    const fallbackProject = parseMarkdown(screenplayText);
+    return res.json({ blocks: fallbackProject });
   }
 
   try {
@@ -483,69 +483,11 @@ ${screenplayText}`;
     res.json({ blocks });
 
   } catch (err: any) {
-    console.warn("Script parsing with AI failed, invoking local fallback rules:", err);
-    const fallbackList = fallbackScriptParser(screenplayText);
-    res.json({ blocks: fallbackList });
+    const errMsg = err.message || JSON.stringify(err);
+    console.error("Script parsing with AI failed. Import Markdown text manually.", errMsg);
+    return res.status(500).json({ error: `Script parsing with AI failed: ${errMsg}` });
   }
 });
-
-// Helper parsing when no AI acts
-function fallbackScriptParser(text: string): any[] {
-  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  const blocks: any[] = [];
-  
-  for (let i = 0; i < Math.min(lines.length, 12); i++) {
-    const line = lines[i];
-    
-    // Check if format is Speaker: "Dialogue" or similar
-    let speaker: VoiceName = "Zephyr";
-    let blockText = line;
-    let emotion = "none";
-    
-    // Try to extract Speaker name
-    const match = line.match(/^\[?([A-Za-z]+)\]?:?\s*(.*)$/);
-    if (match && match[1]) {
-      const parsedSpeaker = match[1].toLowerCase();
-      if (parsedSpeaker.includes("narrator") || parsedSpeaker.includes("zephyr")) {
-        speaker = "Zephyr";
-      } else if (parsedSpeaker.includes("kore") || parsedSpeaker.includes("elizabeth") || parsedSpeaker.includes("jane") || parsedSpeaker.includes("woman")) {
-        speaker = "Kore";
-      } else if (parsedSpeaker.includes("puck") || parsedSpeaker.includes("arthur") || parsedSpeaker.includes("boy")) {
-        speaker = "Puck";
-      } else if (parsedSpeaker.includes("charon") || parsedSpeaker.includes("father") || parsedSpeaker.includes("man")) {
-        speaker = "Charon";
-      } else if (parsedSpeaker.includes("fenrir") || parsedSpeaker.includes("wolf") || parsedSpeaker.includes("guard")) {
-        speaker = "Fenrir";
-      } else {
-        // Assign cyclically for fun
-        const voices: VoiceName[] = ["Kore", "Puck", "Charon", "Fenrir"];
-        speaker = voices[i % voices.length];
-      }
-      blockText = match[2] || line;
-    }
-
-    // Try to extract stage directions like [whispering]
-    const emotionMatch = blockText.match(/\[([a-z]+)\]/i);
-    if (emotionMatch && emotionMatch[1]) {
-      const e = emotionMatch[1].toLowerCase();
-      if (["laughing", "sad", "excited", "whispering", "shouting", "gasping"].includes(e)) {
-        emotion = e;
-      }
-      blockText = blockText.replace(/\[.*?\]/g, "");
-    }
-    
-    blocks.push({
-      speaker,
-      text: blockText.replace(/"/g, "").trim(),
-      pacing: "normal",
-      pitch: "normal",
-      emotion: emotion,
-      customInstructions: "Imported via local script parsing rules"
-    });
-  }
-  
-  return blocks;
-}
 
 // ---------------------- VITE SERVING ----------------------
 
