@@ -44,7 +44,8 @@ The below example would produce the project seen in the screenshot above.
 
 ### Character A
 - Voice: Kore
-- Instructions: You're a regular guy who speaks like (...)
+- Instructions: You're a sturdy, gallavanting adventure guy who speaks like (...)
+- Role: Strapping, quick-witted protagonist
 
 ## Chapter 1
 
@@ -72,7 +73,7 @@ A ton of manual assistance was needed to fine-tune it and get little fiddly API 
 
 ## Technical Details
 
-This uses Node and React with the primary application in App.tsx running on a Vite web server to route API endpoints as needed. That's as much as I understand about it.
+This project uses Node, React, Tailwind, and Vite using TypeScript with the primary application in App.tsx running on a Vite web server to route to Gemini API endpoints as needed. That's as much as I understand about it.
 
 The project data is stored as JSON in LocalStorage. This is the same data exported when clicking 'Save Project'. A schema is forthcoming.
 The audio data is stored in IndexedDb as base64 strings consisting of the binary data for the PCM audio.

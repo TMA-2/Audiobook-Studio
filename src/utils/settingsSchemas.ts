@@ -1,5 +1,6 @@
 import { SettingFieldSchema } from '../types';
 
+// This should eventually be re-worked to literally use a JSON schema layout, so...
 export const PROJECT_SETTINGS_SCHEMAS: SettingFieldSchema[] = [
   // Generation Category
   {
@@ -49,6 +50,17 @@ export const PROJECT_SETTINGS_SCHEMAS: SettingFieldSchema[] = [
       { value: '24000', label: '24 kHz' },
       { value: '44100', label: '44.1 kHz' },
       { value: '48000', label: '48 kHz' }
+    ],
+    category: 'generation'
+  },
+  {
+    key: 'generationOption',
+    label: 'Audio Generation Strategy',
+    description: 'Defines how API requests are structured for audio synthesis. Combined mode batches multi-speaker requests (Max 2 speakers / 8KB payload per request).',
+    type: 'enum',
+    options: [
+      { value: 'individual', label: 'Individual snippet generation (1 API request per snippet)' },
+      { value: 'combined', label: 'Combined multi-speaker generation (Max 2 speakers / 8KB)' }
     ],
     category: 'generation'
   },

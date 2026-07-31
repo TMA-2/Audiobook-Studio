@@ -78,12 +78,16 @@ export interface Speaker {
   customInstructions?: string; // performance directives (old)
   order: number;
   style: string; // custom instructions / style guidelines
+  role?: string; // character role (e.g., Protagonist, Sister)
+  pace?: string; // character speed (e.g. Natural)
+  accent?: string; // character accent (e.g., American Neutral)
 }
 
 export interface NarrationBlock {
   id: string;
   chapterId: string;
   speakerId: string; // references Speaker.id
+  sceneId: string; // references scene.id
   text: string;
   status: 'idle' | 'generating' | 'success' | 'error';
   audioData: string | null; // base64 string
@@ -91,6 +95,9 @@ export interface NarrationBlock {
   errorMessage: string | null;
   fallback?: boolean;
 }
+
+// for testing Interactions API with response_format.mime_type
+export type InteractionsMimeType = 'audio/mp3' | 'audio/ogg_opus' | 'audio/l16' | 'audio/wav' | 'audio/alaw' | 'audio/mulaw';
 
 export type AudioEncoding = 'M4A' | 'OGG_OPUS' | 'MP3' | 'WAV';
 
@@ -115,6 +122,8 @@ export interface Snippet {
   errorMessage?: string;
   generations: Generation[];
   activeGenerationId: string | null;
+  // to be implemented: to test the Interactions API stateful mode 'previous_response_id' 
+  responseId?: string;
   isCollapsed?: boolean;
 }
 
@@ -137,12 +146,10 @@ export interface Scene {
   id: string;
   name: string;
   description: string;
+  context?: string; // narrative or situational background/context
   order: number;
 }
 
-/*
-  @
-*/
 export interface Project {
   // New properties
   title: string;
@@ -153,10 +160,12 @@ export interface Project {
     // Track 1 additional settings
     temperature?: number;
     apiType?: 'generateContent' | 'Interactions';
+    generationOption?: 'individual' | 'combined';
     concatenationOption?: 'per-paragraph' | 'per-scene' | 'per-chapter' | 'full-project';
     bitRate?: string;
     apiKey?: string;
     audioExportFormat?: 'M4A' | 'OGG_OPUS' | 'MP3' | 'WAV' | 'FLAC' | 'M4B';
+    promptTemplate?: string;
   };
   speakers: Speaker[];
   chapters: Chapter[];

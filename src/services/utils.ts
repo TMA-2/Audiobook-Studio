@@ -45,7 +45,8 @@ export function getSpeakerStyles(speakerId: string | null, speakers: Speaker[]) 
     };
   }
 
-  const hue = (220 + index * 18) % 360;
+  // randomized, unique colors each time
+  const hue = (220 + index * 137.5) % 360;
   
   return {
     customStyle: {

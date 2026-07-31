@@ -2,6 +2,17 @@
 
 Here is a comprehensive, production-grade architectural plan to transform the Audio Production Suite into a keyboard-first workstation. This plan is designed to feel as fast and tactile as Vim or VS Code, using a unified event-registry model.
 
+## User-entered ideas and preferences
+### Settings Dialogue
+- In the Speakers tab, when clicking the Assigned Voice Model dropdown, the focus should be moved to the search box
+- on pressing uparrow or downarrow, it should navigate focus between the listed voices, with enter confirming the selection
+- if a single voice result is shown, {enter} should select it and close the dropdown
+- on pressing an alphanumeric key, esc, or backspace, it returns focus to the search box
+- on pressing **esc** in the search box, it backs out entirely from the dropdown selection
+
+### Prompt Editor
+- If a markdown or other editor control more complex than a normal textarea is implemented, typing a `{` should trigger suggestions for each available variable, typing further filtering it, and tab completing the top result.
+
 ## 1. Unified Command Registry Architecture
 
 Rather than scatters of onKeyDown handlers across individual components, we will implement a centralized Command Registry. This separates the intent (the action to perform) from the trigger (the specific key combo).

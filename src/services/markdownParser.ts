@@ -1,4 +1,4 @@
-import { Project, Chapter, Snippet, Speaker, GEMINI_MODELS } from '../types';
+import { Project, Chapter, Snippet, Speaker, Scene, GEMINI_MODELS } from '../types';
 import { generateId } from './idService';
 
 // Helper to clean names for robust matching (e.g. "Justin (Narrator)" -> "justin")
@@ -42,6 +42,12 @@ function parseMarkdownTable(lines: string[]): Speaker[] {
         speaker.isNarrator = ['yes', 'true', '1', '[x]', 'x'].includes(cell.toLowerCase());
       } else if (header.includes('style') || header.includes('instruction')) {
         speaker.style = cell;
+      } else if (header.includes('role')) {
+        speaker.role = cell;
+      } else if (header.includes('pace')) {
+        speaker.pace = cell;
+      } else if (header.includes('accent')) {
+        speaker.accent = cell;
       }
     });
 
@@ -52,22 +58,29 @@ function parseMarkdownTable(lines: string[]): Speaker[] {
         name: speaker.name,
         voice: speaker.voice || 'Zephyr',
         style: speaker.style || '',
-        isNarrator: !!speaker.isNarrator
+        isNarrator: !!speaker.isNarrator,
+        role: speaker.role,
+        pace: speaker.pace,
+        accent: speaker.accent
       });
     }
   }
   return speakers;
 }
 
-export function parseMarkdown(markdown: string): Project {
+export function parseMarkdown(markdown: string, stripQuotes: boolean = true): Project {
   const lines = markdown.split('\n');
   let title = 'Untitled Audiobook';
   let speakers: Speaker[] = [];
   let chapters: Chapter[] = [];
+  let scenes: Scene[] = [];
 
   let currentSection: 'none' | 'speakers' | 'content' = 'none';
   let currentSpeaker: Speaker | null = null;
   let currentChapter: Chapter | null = null;
+  let currentScene: Scene | null = null;
+  let parsingSceneContext = false;
+  let parsingSceneDescription = false;
 
   // Pre-pass to find the speakers section and check for table strictly
   let speakersSectionLines: string[] = [];
@@ -122,26 +135,53 @@ export function parseMarkdown(markdown: string): Project {
     }
 
     if (trimmed.startsWith('## ')) {
-      const secName = trimmed.substring(3).toLowerCase();
+      const secName = trimmed.substring(3).toLowerCase().trim();
       if (secName.includes('speaker') || secName.includes('character') || secName.includes('voice')) {
         currentSection = 'speakers';
+        parsingSceneContext = false;
+        parsingSceneDescription = false;
+        continue;
+      } else if (secName.startsWith('scene') || secName.includes('scene:') || secName.includes('scene -')) {
+        // Parse scene heading from ## H2
+        const finalSceneName = trimmed.replace(/^##\s*Scene:\s*/i, '').replace(/^##\s*Scene\s*-\s*/i, '').replace(/^##\s*Scene\s*/i, '').trim();
+        
+        currentScene = {
+          id: generateId(),
+          name: finalSceneName,
+          description: '',
+          context: '',
+          order: scenes.length
+        };
+        scenes.push(currentScene);
+        parsingSceneContext = false;
+        parsingSceneDescription = true;
+        continue;
+      } else if (secName.includes('transcript')) {
+        currentSection = 'content';
+        parsingSceneContext = false;
+        parsingSceneDescription = false;
         continue;
       } else {
         // CRITICAL BUG FIX: We are leaving the speakers section to go to content!
         // Flush the last parsed speaker immediately so it is available in the speakers array
-        // for snippet matching as we parse the content lines below.
         if (currentSpeaker && !hasTable) {
           speakers.push(currentSpeaker);
           currentSpeaker = null;
         }
         currentSection = 'content';
+        parsingSceneContext = false;
+        parsingSceneDescription = false;
+
         if (currentChapter) {
           chapters.push(currentChapter);
         }
+        
+        const chapterTitle = trimmed.substring(3).trim();
+
         currentChapter = {
           id: generateId(),
           order: chapters.length,
-          title: trimmed.substring(3).trim(),
+          title: chapterTitle,
           defaultSpeakerId: null,
           isCollapsed: false,
           snippets: []
@@ -150,20 +190,51 @@ export function parseMarkdown(markdown: string): Project {
       }
     }
 
-    if (currentSection === 'speakers' && !hasTable) {
-      if (trimmed.startsWith('### ')) {
+    if (trimmed.startsWith('### ')) {
+      const h3Name = trimmed.substring(4).toLowerCase().trim();
+      if (h3Name.includes('context')) {
+        parsingSceneContext = true;
+        parsingSceneDescription = false;
+        continue;
+      } else if (h3Name.includes('transcript')) {
+        parsingSceneContext = false;
+        parsingSceneDescription = false;
+        continue;
+      } else if (currentSection === 'speakers' && !hasTable) {
         if (currentSpeaker) {
           speakers.push(currentSpeaker);
         }
+        const spName = trimmed.substring(4).trim();
+
         currentSpeaker = {
           id: generateId(),
           order: speakers.length,
-          name: trimmed.substring(4).trim(),
+          name: spName,
           voice: 'Zephyr',
           style: '',
           isNarrator: false
         };
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+        continue;
+      } else if (currentSection !== 'speakers') {
+        // Parse scene heading from ### H3
+        const finalSceneName = trimmed.replace(/^###\s*Scene:\s*/i, '').replace(/^###\s*Scene\s*-\s*/i, '').replace(/^###\s*Scene\s*/i, '').trim();
+        
+        currentScene = {
+          id: generateId(),
+          name: finalSceneName,
+          description: '',
+          context: '',
+          order: scenes.length
+        };
+        scenes.push(currentScene);
+        parsingSceneContext = false;
+        parsingSceneDescription = true;
+        continue;
+      }
+    }
+
+    if (currentSection === 'speakers' && !hasTable) {
+      if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
         if (currentSpeaker) {
           const content = trimmed.substring(1).trim();
           const colonIdx = content.indexOf(':');
@@ -175,13 +246,30 @@ export function parseMarkdown(markdown: string): Project {
               currentSpeaker.voice = val;
             } else if (key.includes('style') || key.includes('instruction')) {
               currentSpeaker.style = val;
+            } else if (key.includes('role')) {
+              currentSpeaker.role = val;
+            } else if (key.includes('pace') || key.includes('pacing')) {
+              currentSpeaker.pace = val;
+            } else if (key.includes('accent')) {
+              currentSpeaker.accent = val;
             } else if (key.includes('narrator')) {
               currentSpeaker.isNarrator = ['yes', 'true', '1', '[x]', 'x'].includes(val.toLowerCase());
             }
           }
         }
       }
-    } else if (currentSection === 'content') {
+    }
+    else if (currentScene && (parsingSceneDescription || parsingSceneContext)) {
+      // Gather Scene Description / Context lines
+      const cleanVal = trimmed.trim();
+      
+      if (parsingSceneContext) {
+        currentScene.context = (currentScene.context ? currentScene.context + '\n' : '') + cleanVal;
+      } else {
+        currentScene.description = (currentScene.description ? currentScene.description + '\n' : '') + cleanVal;
+      }
+    }
+    else if (currentSection === 'content') {
       if (!currentChapter) {
         currentChapter = {
           id: generateId(),
@@ -210,10 +298,12 @@ export function parseMarkdown(markdown: string): Project {
       }
 
       // Strip quotes if they wrap the text
-      if (cleanText.startsWith('"') && cleanText.endsWith('"')) {
-        cleanText = cleanText.substring(1, cleanText.length - 1);
-      } else if (cleanText.startsWith('“') && cleanText.endsWith('”')) {
-        cleanText = cleanText.substring(1, cleanText.length - 1);
+      if (stripQuotes) {
+        if (cleanText.startsWith('"') && cleanText.endsWith('"')) {
+          cleanText = cleanText.substring(1, cleanText.length - 1);
+        } else if (cleanText.startsWith('“') && cleanText.endsWith('”')) {
+          cleanText = cleanText.substring(1, cleanText.length - 1);
+        }
       }
 
       currentChapter.snippets.push({
@@ -221,6 +311,7 @@ export function parseMarkdown(markdown: string): Project {
         order: currentChapter.snippets.length,
         text: cleanText,
         speakerId: matchedSpeaker ? matchedSpeaker.id : null,
+        sceneId: currentScene ? currentScene.id : null,
         status: 'idle',
         generations: [],
         activeGenerationId: null
@@ -266,6 +357,7 @@ export function parseMarkdown(markdown: string): Project {
             order: 0,
             text: 'It was a dark and stormy night.',
             speakerId: null,
+            sceneId: null,
             status: 'idle',
             isCollapsed: false,
             generations: [],
@@ -287,11 +379,12 @@ export function parseMarkdown(markdown: string): Project {
   return {
     title,
     settings: {
-      model: GEMINI_MODELS[0].id,
+      model: GEMINI_MODELS[0],
       encoding: 'M4A',
       sampleRate: '24000'
     },
     speakers,
-    chapters
+    chapters,
+    scenes
   };
 }

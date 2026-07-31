@@ -5,20 +5,43 @@
 
 import express from "express";
 import path from "path";
+import { fileURLToPath } from "url";
 import fs from "fs";
 import dotenv from "dotenv";
 dotenv.config();
-import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold, GenerateContentResponsePromptFeedback } from "@google/genai";
+import { GoogleGenAI, GoogleGenAIOptions, Type, Modality, HarmCategory, HarmBlockThreshold, GenerateContentResponsePromptFeedback } from "@google/genai";
 import { createServer as createViteServer } from "vite";
-import { VoiceName } from "./src/types.js";
+import { VoiceName, InteractionsMimeType } from "./src/types";
 import { parseMarkdown } from "./src/services/markdownParser";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const PORT = 3000;
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.join(__dirname, "data");
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
+
+const LOGS_DIR = path.join(__dirname, "logs");
+if (!fs.existsSync(LOGS_DIR)) {
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+/**
+ * Log TTS request statistics to a daily JSONL file.
+ */
+function logTtsRequest(data: Record<string, any>) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const logFilePath = path.join(LOGS_DIR, `tts_requests_${today}.json`);
+    const line = JSON.stringify({ timestamp: new Date().toISOString(), ...data }) + "\n";
+    fs.appendFileSync(logFilePath, line, "utf8");
+  } catch (err) {
+    console.error("[Server] Failed to write to JSONL log:", err);
+  }
+}
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -190,6 +213,8 @@ function getGeminiClient(apiKeyOverride?: string) {
     });
   }
 
+  // to be implemented
+  const useInteractionsAPI = cleanEnvVal(process.env.USE_INTERACTIONS_API);
   const useVertexVal = cleanEnvVal(process.env.USE_VERTEX_AI);
   const isVertex = useVertexVal === "true";
 
@@ -210,7 +235,7 @@ function getGeminiClient(apiKeyOverride?: string) {
       const project = cleanEnvVal(process.env.GCP_PROJECT_ID);
       const location = cleanEnvVal(process.env.GCP_LOCATION) || 'us-central1';
 
-      console.log(`[Server] Initializing GoogleGenAI with Vertex AI (Project: ${project}, Location: ${location})`);
+      console.log(`[Server] Initializing GoogleGenAI with Vertex API (Project: ${project}, Location: ${location})`);
       geminiClientCache = new GoogleGenAI({
         vertexai: true,
         project: project,
@@ -259,16 +284,20 @@ app.post("/api/projects", (req, res) => {
 app.post("/api/tts/generate", async (req, res) => {
   const text = req.body.text;
   const speaker = req.body.speaker || req.body.voiceName;
+  // to be implemented
+  const interactionsAPI = req.body.useInteractionsAPI || false;
+  const prevResponseId = req.body.responseId || '';
   const pacing = req.body.pacing;
   const pitch = req.body.pitch;
   const emotion = req.body.emotion;
   const customInstructions = req.body.customInstructions || req.body.styleInstruction;
   const model = req.body.model || req.body.modelName;
   const apiKeyOverride = req.body.apiKey; // client override api key
-  const temperature = req.body.temperature !== undefined ? parseFloat(req.body.temperature) : undefined;
+  const temperature = req.body.temperature !== undefined ? parseFloat(req.body.temperature) : 1.0;
+  const requestSpeakers = req.body.speakers; // optional array of { name: string, voice: string }
   
-  if (!text || !speaker) {
-    return res.status(400).json({ error: "Missing required parameters: text and speaker are mandatory." });
+  if (!text || (!speaker && (!requestSpeakers || requestSpeakers.length === 0))) {
+    return res.status(400).json({ error: "Missing required parameters: text and speaker (or speakers array) are mandatory." });
   }
 
   let selectedModel = model || "gemini-3.1-flash-tts-preview";
@@ -281,11 +310,14 @@ app.post("/api/tts/generate", async (req, res) => {
   }
 
   let formattedPrompt = text;
-  if (styleNotes.length > 0) {
-    formattedPrompt = `[Instructions: ${styleNotes.join(", ")}]\n${text.split("\n").join(" ")}`;
+  if (styleNotes.length > 0 && !requestSpeakers) {
+    formattedPrompt = `
+      ${styleNotes.join(", ")}
+      ${text.split("\n").join(" ")}
+      `;
   }
 
-  console.log(`[Server] Synthesizing Block with Speaker [${speaker}] using model [${selectedModel}] and temperature [${temperature ?? 'default'}]: "${formattedPrompt}"`);
+  console.log(`[Server] Synthesizing Block with Speaker [${speaker || 'multi-speaker'}] using model [${selectedModel}] and temperature [${temperature ?? 'default'}]: "${formattedPrompt.substring(0, 100)}..."`);
 
   const ai = getGeminiClient(apiKeyOverride);
   if (!ai) {
@@ -295,85 +327,252 @@ app.post("/api/tts/generate", async (req, res) => {
   try {
     // track request time
     const start = performance.now();
-    // Try standard UPPERCASE responseModalities first
-    let response = await ai.models.generateContent({
-      model: selectedModel,
-      contents: [{ role: "user", parts: [{ text: formattedPrompt }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        temperature: typeof temperature === 'number' && !isNaN(temperature) ? temperature : undefined,
-        safetySettings: [
+
+    let audioData: string | null = null;
+    let mimeType = 'audio/l16';
+    let responseId: string | undefined = undefined;
+    let responseTime: number | undefined = undefined;
+    let tokenCount: { prompt?: number; response?: number; total?: number } = {};
+
+    if (interactionsAPI) {
+      // Google's own fucking example
+      /* const interaction = await client.interactions.create({
+        model: "gemini-3.1-flash-tts-preview",
+        input: "Say cheerfully: Have a wonderful day!",
+        response_format: { type: 'audio' },
+        generation_config: {
+          speech_config: [
+              { voice: 'Kore' }
+          ]
+        },
+      }); */
+      //#region interactionsAPI
+      let response = await ai.interactions.create({
+        model: selectedModel,
+        response_modalities: [
+          "audio"
+        ],
+        input: {
+          type: "text",
+          text: formattedPrompt
+        },
+        // previous_interaction_id: prevResponseId,
+        response_format: {
+          type: "audio",
+          mime_type: "audio/l16"
+        },
+        /* safety_settings: [
           {
-            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold: HarmBlockThreshold.OFF
+            type: "dangerous_content",
+            threshold: "block_none"
           },
           {
-            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold: HarmBlockThreshold.OFF
+            type: "sexually_explicit",
+            threshold: "block_none"
+          }
+        ], */
+        generation_config: {
+          temperature: temperature,
+          speech_config: (requestSpeakers && requestSpeakers.length > 1) ?
+            requestSpeakers.map((s: any) => ({
+              speaker: s.name,
+              voice: s.voice
+            })
+          ) : [
+            {
+              voice: speaker
+            }
+          ]
+        },
+      });
+
+      const interactionsRequestFullSample = {
+        model: selectedModel,
+        response_modalities: [
+          "audio"
+        ],
+        input: {
+          type: "text",
+          text: formattedPrompt
+        },
+        previous_interaction_id: prevResponseId,
+        response_format: {
+          type: "audio",
+          mime_type: "audio/l16"
+        },
+        safety_settings: [
+          {
+            type: "dangerous_content",
+            threshold: "block_none"
           },
           {
-            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold: HarmBlockThreshold.OFF
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold: HarmBlockThreshold.OFF
+            type: "sexually_explicit",
+            threshold: "block_none"
           }
         ],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: speaker },
-          },
+        generation_config: {
+          temperature: temperature,
+          speech_config: (requestSpeakers && requestSpeakers.length > 1) ?
+            requestSpeakers.map((s: any) => ({
+              speaker: s.name,
+              voice: s.voice
+            })
+          ) : [
+            {
+              voice: speaker
+            }
+          ]
         },
-      },
-    });
-
-    const httpStatus = response.sdkHttpResponse?.responseInternal?.status;
-    const httpStatusText = response.sdkHttpResponse?.responseInternal?.statusText;
-    
-    if (httpStatus && httpStatus !== 200) {
-      return res.status(httpStatus).json({ error: `HTTP Error ${httpStatus} received from API: ${httpStatusText}` });
-    }
-
-    const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    const audioData = inlineData?.data || null;
-    const mimeType = inlineData?.mimeType || 'audio/pcm';
-
-    if (!audioData) {
-      const responseID = response.responseId;
-      const firstCandidate = response.candidates?.[0];
-      const finishReason = firstCandidate?.finishReason;
-      const safetyRatings = firstCandidate?.safetyRatings;
-      const promptFeedback = response.promptFeedback;
-      const promptFeedbackReason = response.promptFeedback?.blockReason;
-      const promptFeedbackMessage = response.promptFeedback?.blockReasonMessage;
-
-      const debugDetails: any = {
-        responseId: responseID,
       };
 
-      if (finishReason) {
-        debugDetails.finishReason = finishReason;
-      }
-      if (safetyRatings && safetyRatings.length > 0) {
-        debugDetails.candidateSafetyRatings = safetyRatings;
-      }
-      if (promptFeedback) {
-        if (promptFeedbackReason === "PROHIBITED_CONTENT") {
-          debugDetails.promptFeedback = "The model thought the given text was too short or it couldn't understand it, so it returned a *false positive* promptFeedback.";
-        }
-        else {
-          debugDetails.promptFeedback = `${promptFeedbackReason}: ${promptFeedbackMessage}`;
-        }
+      // This should only show if it's running inside a browser where console.table() is available via devtools
+      console.table(interactionsRequestFullSample);
+      
+      const httpStatus = response.sdkHttpResponse?.responseInternal?.status;
+      const httpStatusText = response.sdkHttpResponse?.responseInternal?.statusText;
+      
+      if (httpStatus && httpStatus !== 200) {
+        return res.status(httpStatus).json({ error: `HTTP Error ${httpStatus} received from API: ${httpStatusText}` });
       }
 
-      console.warn("[Server] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
-      const detailsStr = JSON.stringify(debugDetails);
+      audioData = response.output_audio?.data || null;
+      mimeType = response.output_audio?.mime_type || 'audio/l16';
+      const finishReason = response.status; // success == "completed"
+      
+      responseId = response.id;
+      if (response.updated && response.created) {
+        responseTime = Date.parse(response.updated) - Date.parse(response.created);
+      }
 
-      return res.status(500).json({ 
-        error: `Gemini API returned an empty audio response. Details: ${detailsStr}`,
-        details: debugDetails
+      tokenCount = {
+        prompt: response.usage?.total_input_tokens,
+        response: response.usage?.total_output_tokens,
+        total: response.usage?.total_tokens,
+      };
+
+      if (!audioData) {
+        const debugDetails: any = {
+          status: finishReason,
+          responseTime: responseTime,
+          measuredTime: performance.now() - start,
+          responseId: responseId,
+          tokenCount: tokenCount,
+        };
+
+        console.warn("[Server.Interactions] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
+        const detailsStr = JSON.stringify(debugDetails);
+
+        return res.status(500).json({ 
+          error: `Interactions API returned an empty audio response. Details: ${detailsStr}`,
+          details: debugDetails
+        });
+      }
+      //endregion
+    }
+    else {
+      //region generateContent
+      let response = await ai.models.generateContent({
+        model: selectedModel,
+        contents: [{ role: "user", parts: [{ text: formattedPrompt }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          temperature: typeof temperature === 'number' && !isNaN(temperature) ? temperature : undefined,
+          safetySettings: [
+            {
+              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+              threshold: HarmBlockThreshold.OFF
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+              threshold: HarmBlockThreshold.OFF
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+              threshold: HarmBlockThreshold.OFF
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+              threshold: HarmBlockThreshold.OFF
+            }
+          ],
+          speechConfig: requestSpeakers && requestSpeakers.length > 1 ? {
+            multiSpeakerVoiceConfig: {
+              speakerVoiceConfigs: requestSpeakers.map((s: any) => ({
+                speaker: s.name,
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: s.voice }
+                }
+              }))
+            }
+          } : {
+            // single-speaker config request
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: speaker },
+            }
+          },
+        },
       });
+
+      const httpStatus = response.sdkHttpResponse?.responseInternal?.status;
+      const httpStatusText = response.sdkHttpResponse?.responseInternal?.statusText;
+      
+      if (httpStatus && httpStatus !== 200) {
+        return res.status(httpStatus).json({ error: `HTTP Error ${httpStatus} received from API: ${httpStatusText}` });
+      }
+
+      const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      audioData = inlineData?.data || null;
+      mimeType = inlineData?.mimeType || 'audio/l16';
+
+      responseId = response.responseId;
+      if (response.createTime) {
+        responseTime = Date.now() - Date.parse(response.createTime);
+      }
+
+      tokenCount = {
+        prompt: response.usageMetadata?.promptTokenCount,
+        response: response.usageMetadata?.candidatesTokenCount,
+        total: response.usageMetadata?.totalTokenCount,
+      };
+
+      if (!audioData) {
+        const firstCandidate = response.candidates?.[0];
+        const finishReason = firstCandidate?.finishReason;
+        const safetyRatings = firstCandidate?.safetyRatings;
+        const promptFeedback = response.promptFeedback;
+        const promptFeedbackReason = response.promptFeedback?.blockReason;
+        const promptFeedbackMessage = response.promptFeedback?.blockReasonMessage;
+
+        const debugDetails: any = {
+          responseId: responseId,
+          responseTime: responseTime,
+          tokenCount: tokenCount
+        };
+
+        if (finishReason) {
+          debugDetails.finishReason = finishReason;
+        }
+        if (safetyRatings && safetyRatings.length > 0) {
+          debugDetails.candidateSafetyRatings = safetyRatings;
+        }
+        if (promptFeedback) {
+          if (promptFeedbackReason === "PROHIBITED_CONTENT") {
+            debugDetails.promptFeedback = `The model thought the prompt was too short or ambiguous, so it returned a finishReason of ${finishReason}, and a *false positive* PROHIBITED_CONTENT with the following message: ${promptFeedbackMessage}`;
+          }
+          else {
+            debugDetails.promptFeedback = `${promptFeedbackReason}: ${promptFeedbackMessage}`;
+          }
+        }
+
+        console.warn("[Server.generateContent] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
+        const detailsStr = JSON.stringify(debugDetails);
+
+        return res.status(500).json({ 
+          error: `generateContent API returned an empty audio response. Details: ${detailsStr}`,
+          details: debugDetails
+        });
+      }
+      //endregion
     }
 
     // log request time
@@ -384,18 +583,32 @@ app.post("/api/tts/generate", async (req, res) => {
     const wordCount = text.trim().split(/\s+/).length;
     const reqCharCount = formattedPrompt.length;
     const reqWordCount = formattedPrompt.split(/\s+/).length;
-    const tokenCount: any = {
-      prompt: response.usageMetadata.promptTokenCount,
-      response: response.usageMetadata.candidatesTokenCount,
-      total: response.usageMetadata.totalTokenCount
-    };
-    console.info(`Response [${elapsedSec.toFixed(3)}]: ${charCount}->${reqCharCount} char; ${wordCount}->${reqWordCount} words. Token counts: ${tokenCount.prompt} prompt; ${tokenCount.response} response; ${tokenCount.total} total.`);
+    
+    // Write request statistics to daily JSONL log
+    logTtsRequest({
+      apiType: interactionsAPI ? 'interactions' : 'generateContent',
+      model: selectedModel,
+      speaker: speaker || 'multi-speaker',
+      charCount,
+      reqCharCount,
+      wordCount,
+      reqWordCount,
+      elapsedMs,
+      promptTokens: tokenCount.prompt || 0,
+      responseTokens: tokenCount.response || 0,
+      totalTokens: tokenCount.total || 0,
+      responseId: responseId || null
+    });
+
+    console.info(`Response [${elapsedSec.toFixed(3)}s]: ${charCount}->${reqCharCount} char; ${wordCount}->${reqWordCount} words. Tokens: prompt=${tokenCount.prompt}, resp=${tokenCount.response}, total=${tokenCount.total}.`);
     
     return res.json({
       success: true,
       audioData: audioData,
       mimeType: mimeType,
       compiledPrompt: formattedPrompt,
+      responseId: responseId,
+      responseTime: responseTime,
       fallback: false
     });
 
@@ -403,6 +616,45 @@ app.post("/api/tts/generate", async (req, res) => {
     const errMsg = err.message || JSON.stringify(err);
     console.error("Gemini Speech generation failed:", errMsg);
     return res.status(500).json({ error: `Gemini Speech generation failed: ${errMsg}` });
+  }
+});
+
+// GET /api/tts/stats - returns summary of today's TTS activity
+app.get("/api/tts/stats", (req, res) => {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const logFilePath = path.join(LOGS_DIR, `tts_requests_${today}.jsonl`);
+    if (!fs.existsSync(logFilePath)) {
+      return res.json({
+        todayRequests: 0,
+        totalChars: 0,
+        totalTokens: 0,
+        lastRequestTime: null,
+      });
+    }
+
+    const lines = fs.readFileSync(logFilePath, "utf8").trim().split("\n").filter(Boolean);
+    let totalChars = 0;
+    let totalTokens = 0;
+    let lastRequestTime: string | null = null;
+
+    for (const line of lines) {
+      try {
+        const item = JSON.parse(line);
+        totalChars += item.reqCharCount || item.charCount || 0;
+        totalTokens += item.totalTokens || 0;
+        lastRequestTime = item.timestamp;
+      } catch {}
+    }
+
+    return res.json({
+      todayRequests: lines.length,
+      totalChars,
+      totalTokens,
+      lastRequestTime,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

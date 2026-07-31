@@ -7,6 +7,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Interactions API is not to be used until such time as I figure out what its stupid problem is, perhaps contacting support about it.
+- Commented out a few sections of the Interactions request object that I'm not positive are supported, such as previous_interaction_id, safety_settings, etc.
+- Included a TTS request example *direct* from [their stupid documentation](https://ai.google.dev/gemini-api/docs/speech-generation#javascript) to test later. perhaps passing certain settings is limiting which models can be called, I don't know.
+- `server.ts` had speech_config check for `requestSpeakers.length > 1` instead of 0 so only two speakers will map, otherwise one, as the multi-speaker endpoint won't accept a single array object with both name/voice, *I think*.
+
+## [0.9.1] - 2026-07-27
+
+### Fixed
+- Unified prompt compilation across TTS execution and Settings prompt preview by making `compilePrompt` in `src/utils/promptCompiler.ts` the single source of truth.
+- Fixed multi-speaker template interpolation issue where secondary speaker blocks were missing replaced `{speaker_role}`, `{speaker_voice}`, and `{speaker_instructions}` variables.
+- Implemented mode-aware prompt preview selection logic in `compilePrompt` (`individual` mode: selected snippet -> focused snippet -> first snippet of active chapter; `combined` mode: selected snippets -> first scene assigned snippets -> first 10 snippets).
+- Fixed scene section rendering logic in prompt preview to omit scene header block when no active scene is assigned to selected/focused snippets.
+
+### Added
+- Integrated collapsible side panels for Chapters, Scenes, and Speakers in the Studio left sidebar with toggle chevron indicators to streamline long multi-chapter project workflows.
+- Introduced explicit **Audio Generation Strategy** configuration in Project Settings (`generationOption`: `individual` vs `combined`), separating API batching limits from export concatenation rules.
+- Added daily JSONL logging for all server-side TTS requests (`logs/tts_requests_YYYY-MM-DD.jsonl`) tracking timestamp, API method (`Interactions` vs `generateContent`), character counts, and token usage statistics.
+- Added `/api/tts/stats` backend endpoint returning daily TTS activity metrics.
+
+### Changed
+- Verified and refined server-side Interactions API handling in `server.ts` with correct variable scoping and parameter passing for `previous_interaction_id`, `speech_config`, and `response_format`.
+
+### Fixed
+- Fixed `{snippet_text}` prompt compilation in `SettingsDialogue.tsx` to prioritize active snippet selections across chapters and prevent fallback leakage of unselected chapter snippets.
+- Fixed multi-speaker prompt block concatenation in `promptCompiler.ts` and `SettingsDialogue.tsx` to dynamically duplicate `{speaker_name}` blocks for all unique speakers in selected snippets, and updated `handleBulkGenerate` to execute combined multi-speaker generation when multiple snippets or `generationOption: 'combined'` is selected.
+
+## [0.8.3] - 2026-07-23
+
+### Fixed
+- Fixed `{snippet_text}` interpolation in the settings dialogue prompt preview to filter and only include actively checked/selected text snippets if a selection is present. If no selection is active, it continues to fall back to compiling the entire active chapter, or the static fallback prompt scene if empty.
+
+## [0.8.2] - 2026-07-23
+
+### Fixed
+- Fixed `{snippet_text}` and `{chapter_title}` interpolation in the settings hub compiled prompt markdown preview to dynamically render the actual text snippets and title from the active chapter (with a fallback to the static romantic cafe scene mock text if no active chapter or text snippets are found).
+
+## [0.8.1] - 2026-07-23
+
+### Fixed
+- Fixed key event bubbling in the voice combobox search panel where pressing ArrowUp or ArrowDown would double-fire and increment or decrement the active index by 2.
+- Fixed the prompt editor's "Reset Default" button by replacing browser `confirm()` with a custom, inline confirmation toggle to prevent crashes inside sandboxed iframe containers.
+- Replaced all other occurrences of browser `window.confirm` and `alert` (in bulk snippet delete, chapter deletion, and character bulk generation) with a modern, non-blocking React-based custom dialog modal.
+
+## [0.8.0] - 2026-07-23
+
+### Added
+- Integrated **Scenes List** section directly into the left Studio Panel (positioned between Chapters and Speakers) to provide convenient visibility, selection, and bulk scene assignment capabilities.
+- Added support for automatic creation of a new Character Speaker when clicking the `+` button in the Speakers studio panel list, opening settings directly to the Speakers tab.
+- Added support for automatic creation of a new Acoustic Scene when clicking the `+` button in the Scenes studio panel list, opening settings directly to the Scenes tab.
+- Added full import and export support for defined Scenes lists and snippet `sceneId` bindings within project JSON save files.
+
+### Changed
+- Removed the secondary "Delete Chapter" action button from the active chapter's header panel to clean up workspace clutter, leaving deletion safely positioned on the sidebar list.
+
+### Fixed
+- Fixed the "Reset Default" button inside the Prompt Template Editor tab of Settings to explicitly set its element type to `button` and prevent default form actions, restoring prompt layout resets.
+
+## [0.7.2] - 2026-07-23
+
+### Fixed
+- Fixed a React "Rendered more hooks than during the previous render" runtime exception in the Settings Dialogue. All hooks are now declared unconditionally before any early-return checks, satisfying React's Rules of Hooks.
+- Guarded character speaker state property accesses inside keyboard navigation event handlers with optional chaining and fallback bounds.
+- Added comprehensive JSDoc comments to newly implemented helper functions in the Settings Dialogue.
+
+## [0.7.1] - 2026-07-23
+
+### Fixed
+- Updated Prompt Template Editor in the Settings Dialogue to default to the modern format centered on `{speaker_name}`, `{speaker_role}`, `{speaker_voice}`, and `{speaker_instructions}`.
+- Added live, real-time preview assembly substituting project title, chapter title, speaker details, role, scene description, scene context, and sequential transcript dialogue.
+- Moved the 'Variables:' helper chips block above the template textarea so it wraps beautifully and does not overlap with the markdown preview.
+- Restored functional behavior to the `Reset Default` button using the new default template.
+- Integrated automated real-time template validator that blocks saving if mandatory fields (`{speaker_name}`, `{speaker_voice}`, `{speaker_instructions}` / `{speaker_style}`, and `{snippet_text}`) are absent.
+- Added a `role` attribute input field to the character speaker editing tab, with auto-fallback to "Narrator" when making a character the default narrator.
+- Enhanced the custom searchable voice profile combobox with keyboard arrow navigation, enter-to-select, escape-to-close, and automatic search focus on open.
+- Cleaned up unfinished, unused `src/utils/logWriter.ts` file to ensure clean TypeScript compilation.
+
+## [0.7.0] - 2026-07-23
+
+### Added
+- Created `/src/utils/promptCompiler.ts` with `compilePrompt` to dynamically interpolate project, chapter, scene, context, and contiguous narrator/speaker scripts into user-configured prompt templates.
+- Added formal `promptTemplate` string property to the `settings` sub-interface in `src/types.ts`.
+- Integrated `getGenerationValidationState` dynamically into the "Generate Selected" bulk action button, auto-disabling the button and displaying descriptive validation warning tooltips (e.g., character limit or multi-speaker capacity warnings) on hover.
+- `types.ts` added type `InteractionsMimeType` supported audio formats for the Interactions API
+- `server.ts` added interactionsAPI placeholder to tts/generate api req
+- `geminiService.ts` added interactionsAPI placeholder to tts/generate api call 
+- `markdownParser.ts` added optional `stripQuotes: boolean` parameter to parseMarkdown to determine whether or not to strip surrounding quotes from speaking lines. it's sometimes useful to keep them when they're part of one block with both narration and speech for the character
+
+### Changed
+- Expanded `/src/App.tsx` `handleBulkGenerate` to handle multi-speaker synthesis. It executes validation, compiles templates, issues single multi-speaker API requests with exact character and prebuilt voice mappings, and updates all selected range blocks in a unified state.
+- Updated `/server.ts` `api/tts/generate` endpoint to receive a contiguous `speakers` array configuration mapping speaker names to their corresponding voices, and invoke standard `generateContent` using `speechConfig.multiSpeakerVoiceConfig`.
+- Updated client `generateTTS` in `src/services/geminiService.ts` to forward mapped speakers array values over the network.
+- `data/Request Template.md` specified precisely how Scene and Context ought to be used
+- `SettingsDialogue.tsx` modified prompt template
+- Multi Snippet Generation plan with modified prompt generation template and instructions
+
+## [0.6.3] - 2026-07-20
+
+### Added
+- `data/Request Template.md` request template / example
+- `data/JSDocTemplate.ts` template because I keep forgetting what fields go in which. I really need to export this damn thing to VS Code or Antigravity or whatever so I have my snippets and everything
+
+### Changed
+- Renamed `PromptSchema-SingleSpeaker.md` to `Gemini Recommended Example Request.md`
+- Renamed `GeminiExample.md` to `Request Template.md`
+- `GEMINI.md`: Modified and clarified a lot regarding separate request/change and bug fix processes as well as some other details herea and there. No more updating `TODO.md` -- the files in the NOTES (should probably rename it PLANS huh?) folder will be the source of truth going forward in terms of concrete changes. they'll essentially be a "closed list" where `TODO.md` will be an "open list" that only I update with my harebrained ideas that get checked off as they're requested, worked on, and completed little by little.
+- `TODO.md`: and naturally I've added more uh... "ambitious" ideas lol.
+
+## [0.5.3] - 2026-07-18
+
+### Fixed
+- Fixed uncaught runtime TypeError ("Cannot read properties of undefined (reading 'replace')") when rendering older generations by adding optional chaining and fallback protection `(gen.model || 'unknown')` before string replacement.
+- Defended `project.title` and `tempPromptTemplate` string operations from undefined/null exceptions.
+- Added state synchronization in `SettingsDialogue` to update local modal inputs, character lists, and custom templates when opened or on project change.
+
+## [0.5.2] - 2026-07-18
+
+### Added
+- Rendered the `<SettingsDialogue>` component in `App.tsx` main JSX return statement.
+
+### Fixed
+- Fixed typescript type mismatch in `src/services/markdownParser.ts` by assigning `GEMINI_MODELS[0]` instead of `GEMINI_MODELS[0].id` to the `model` property.
+
 ## [0.5.1] - 2026-07-18
 
 ### Added
@@ -76,5 +199,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the project in `package.json` to "Audiobook Production Studio".
 - Standardized the Vite/Express full-stack dev and build system using `tsx` for high-performance live reloading and `esbuild` to compile a bundled, optimized CommonJS server at `dist/server.cjs`.
 
+[unreleased]: https://github.com/tma-2/audiobook-studio/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/tma-2/audiobook-studio/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/tma-2/audiobook-studio/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/tma-2/audiobook-studio/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/tma-2/audiobook-studio/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/tma-2/audiobook-studio/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/tma-2/audiobook-studio/compare/v0.3.0...v0.4.0
