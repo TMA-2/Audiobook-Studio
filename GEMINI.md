@@ -3,6 +3,10 @@ trigger: always_on
 ---
 # Gemini Agent Instructions
 
+## Design Skill
+
+> Refer to [impeccable skill](.gemini/skills/impeccable/SKILL.md) for design patterns.
+
 ## Code Preferences
 
 > This is definitely not comprehensive, and I don't know what ESlint / Typescript / Dependency practices should go in, so this is a best guess coming from a PowerShell guy who is very much *not* a fullstack web guy, so I will likely use a lot of incorrect terminology -- just make a best effort to translate it into ECMAscript / web / etc.
@@ -13,6 +17,8 @@ trigger: always_on
 - I still don't know enough typescript to have opinions about style though.
 
 ## General
+
+> Refer to [unslop skill](.gemini/skills/unslop/SKILL.md) for output patterns, grammar, etc.
 
 - Don't over-engineer.
 - Don't over-engineer.

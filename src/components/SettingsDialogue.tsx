@@ -2,13 +2,17 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   X, Settings, Users, Clapperboard, FileText, Plus, Trash2, 
   Volume2, Square, Search, Sparkles, Check, ChevronDown, HelpCircle, 
-  AlertTriangle, RotateCcw
+  AlertTriangle, RotateCcw, Table, ExternalLink, RefreshCw, CheckCircle2,
+  Sliders
 } from 'lucide-react';
-import { Project, Speaker, Scene, VoiceProfile, GEMINI_VOICES, GEMINI_MODELS } from '../types';
+import { Project, Speaker, Scene, VoiceProfile, UserPreferences, GEMINI_VOICES, GEMINI_MODELS } from '../types';
 import { PROJECT_SETTINGS_SCHEMAS } from '../utils/settingsSchemas';
 import { DynamicSettingsForm } from './DynamicSettingsForm';
 import { generateId } from '../services/idService';
 import { compilePrompt } from '../utils/promptCompiler';
+import { requestGoogleAccessToken, isGoogleAuthenticated, clearGoogleToken } from '../services/googleAuthService';
+import { createOrGetSpreadsheet, formatSpreadsheetTitle, formatMonthSheetName } from '../services/sheetsService';
+import { loadUserPreferences, saveUserPreferences } from '../services/preferenceService';
 
 export const DEFAULT_PROMPT_TEMPLATE = `# {project_title}
 ## {chapter_title}
@@ -18,12 +22,11 @@ export const DEFAULT_PROMPT_TEMPLATE = `# {project_title}
 ### {speaker_name}
 - Role: {speaker_role}
 - Voice: {speaker_voice}
-- Style: {speaker_instructions}
 
-## Scene: {scene_name}
-{scene_description}
+#### Style
+{speaker_instructions}
 
-### Context
+## Scene Context: {scene_name}
 {scene_context}
 
 ## TRANSCRIPT
@@ -37,12 +40,14 @@ interface SettingsDialogueProps {
   previewingSpeakerId: string | null;
   onPreviewVoice: (speaker: Speaker) => void;
   onStopAudio: () => void;
-  defaultTab?: 'project' | 'speakers' | 'scenes' | 'prompt';
+  defaultTab?: 'project' | 'speakers' | 'scenes' | 'prompt' | 'logging';
   autoAddSpeaker?: boolean;
   autoAddScene?: boolean;
   activeChapterId?: string | null;
   selectedSnippetIds?: Set<string>;
   focusedSnippetId?: string | null;
+  userPreferences?: UserPreferences;
+  onUpdatePreferences?: (preferences: UserPreferences) => void;
 }
 
 export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
@@ -59,8 +64,10 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
   activeChapterId = null,
   selectedSnippetIds = new Set<string>(),
   focusedSnippetId = null,
+  userPreferences: externalPreferences,
+  onUpdatePreferences,
 }) => {
-  const [activeTab, setActiveTab] = useState<'project' | 'speakers' | 'scenes' | 'prompt'>('project');
+  const [activeTab, setActiveTab] = useState<'project' | 'speakers' | 'scenes' | 'prompt' | 'logging'>('project');
   
   // Temporary state for edits (committed on Save/OK, discarded on Cancel)
   const [tempSettings, setTempSettings] = useState(() => ({ ...project.settings }));
@@ -69,6 +76,18 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
   const [tempPromptTemplate, setTempPromptTemplate] = useState<string>(() => {
     return (project.settings as any).promptTemplate || DEFAULT_PROMPT_TEMPLATE;
   });
+
+  // User preferences temporary state
+  const [tempPreferences, setTempPreferences] = useState<UserPreferences>(() => {
+    return externalPreferences || loadUserPreferences();
+  });
+
+  // Google Sheets Auth and Setup State
+  const [isAuthenticatingGoogle, setIsAuthenticatingGoogle] = useState(false);
+  const [isCreatingSpreadsheet, setIsCreatingSpreadsheet] = useState(false);
+  const [googleAuthError, setGoogleAuthError] = useState<string | null>(null);
+  const [googleSuccessMessage, setGoogleSuccessMessage] = useState<string | null>(null);
+  const [hasGoogleAuth, setHasGoogleAuth] = useState(() => isGoogleAuthenticated());
 
   // Track currently selected speaker to edit in Speakers tab
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string | null>(() => {
@@ -95,6 +114,10 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
     if (isOpen) {
       setTempSettings({ ...project.settings });
       setTempPromptTemplate((project.settings as any).promptTemplate || DEFAULT_PROMPT_TEMPLATE);
+      setTempPreferences(externalPreferences || loadUserPreferences());
+      setHasGoogleAuth(isGoogleAuthenticated());
+      setGoogleAuthError(null);
+      setGoogleSuccessMessage(null);
       setShowResetConfirm(false);
       
       const currentSpeakers = [...project.speakers];
@@ -150,7 +173,58 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
   const activeSpeaker = tempSpeakers.find(s => s.id === selectedSpeakerId) || tempSpeakers[0];
   const activeScene = tempScenes.find(s => s.id === selectedSceneId) || tempScenes[0];
 
-  // Save edits back to project
+  // Google Sheets OAuth and Initialization handlers
+  const handleConnectGoogle = async () => {
+    setIsAuthenticatingGoogle(true);
+    setGoogleAuthError(null);
+    setGoogleSuccessMessage(null);
+    try {
+      await requestGoogleAccessToken();
+      setHasGoogleAuth(true);
+      setGoogleSuccessMessage("Google Account connected successfully.");
+    }
+    catch (err: any) {
+      console.error("Google authentication failed:", err);
+      setGoogleAuthError(err?.message || "Failed to authenticate with Google.");
+    }
+    finally {
+      setIsAuthenticatingGoogle(false);
+    }
+  };
+
+  const handleDisconnectGoogle = () => {
+    clearGoogleToken();
+    setHasGoogleAuth(false);
+    setGoogleSuccessMessage("Google Account disconnected.");
+  };
+
+  const handleCreateNewSpreadsheet = async () => {
+    setIsCreatingSpreadsheet(true);
+    setGoogleAuthError(null);
+    setGoogleSuccessMessage(null);
+
+    try {
+      const token = await requestGoogleAccessToken();
+      setHasGoogleAuth(true);
+      const res = await createOrGetSpreadsheet(token);
+      setTempPreferences(prev => ({
+        ...prev,
+        sheetsSpreadsheetId: res.spreadsheetId,
+        sheetsSpreadsheetUrl: res.spreadsheetUrl,
+        sheetsLoggingEnabled: true
+      }));
+      setGoogleSuccessMessage(`Created new spreadsheet: ${res.spreadsheetId}`);
+    }
+    catch (err: any) {
+      console.error("Failed to create log spreadsheet:", err);
+      setGoogleAuthError(err?.message || "Failed to create Google Spreadsheet.");
+    }
+    finally {
+      setIsCreatingSpreadsheet(false);
+    }
+  };
+
+  // Save edits back to project and user preferences
   const handleSave = () => {
     onUpdateProject({
       settings: {
@@ -161,6 +235,12 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
       speakers: tempSpeakers,
       scenes: tempScenes
     });
+
+    saveUserPreferences(tempPreferences);
+    if (onUpdatePreferences) {
+      onUpdatePreferences(tempPreferences);
+    }
+
     onClose();
   };
 
@@ -334,14 +414,20 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
       <div className="space-y-2 text-slate-300 font-sans text-sm selection:bg-indigo-500/30">
         {lines.map((line, idx) => {
           const trimmed = line.trim();
+          if (trimmed.startsWith('# ')) {
+            return <h1 key={idx} className="text-lg font-black text-slate-100 mt-5 pb-2 border-b border-slate-700">{trimmed.substring(2)}</h1>;
+          }
           if (trimmed.startsWith('## ')) {
-            return <h3 key={idx} className="text-base font-bold text-indigo-400 mt-4 pb-1 border-b border-slate-800">{trimmed.substring(3)}</h3>;
+            return <h2 key={idx} className="text-base font-bold text-indigo-400 mt-4 pb-1 border-b border-slate-800">{trimmed.substring(3)}</h2>;
           }
           if (trimmed.startsWith('### ')) {
-            return <h4 key={idx} className="text-sm font-semibold text-teal-400 mt-3">{trimmed.substring(4)}</h4>;
+            return <h3 key={idx} className="text-sm font-semibold text-teal-400 mt-3">{trimmed.substring(4)}</h3>;
           }
-          if (trimmed.startsWith('# ')) {
-            return <h2 key={idx} className="text-lg font-black text-slate-100 mt-5 pb-2 border-b border-slate-700">{trimmed.substring(2)}</h2>;
+          if (trimmed.startsWith('#### ')) {
+            return <h4 key={idx} className="text-sm font-semibold fg-onedark-purple mt-3">{trimmed.substring(5)}</h4>;
+          }
+          if (trimmed.startsWith('##### ')) {
+            return <h5 key={idx} className="text-sm font-semibold fg-onedark-cyan mt-3">{trimmed.substring(6)}</h5>;
           }
           if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
             return <li key={idx} className="ml-4 list-disc pl-1 text-slate-300">{trimmed.substring(2)}</li>;
@@ -432,6 +518,17 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
             >
               <FileText className="w-3.5 h-3.5" />
               Prompt Editor
+            </button>
+            <button
+              onClick={() => setActiveTab('logging')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide uppercase transition-all ${
+                activeTab === 'logging' 
+                  ? 'bg-slate-800 text-slate-100 shadow border border-slate-700/80' 
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <Table className="w-3.5 h-3.5" />
+              Google Sheets Logging
             </button>
           </div>
         </div>
@@ -915,7 +1012,6 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                   <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{speaker_voice}`}</span>
                   <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{speaker_instructions}`}</span>
                   <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{scene_name}`}</span>
-                  <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{scene_description}`}</span>
                   <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{scene_context}`}</span>
                   <span className="px-1.5 py-0.5 bg-slate-900 rounded border border-slate-800 text-indigo-400">{`{snippet_text}`}</span>
                 </div>
@@ -943,12 +1039,178 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
               {/* Right Column: Pre-Rendered Assembly Preview */}
               <div className="border border-slate-800 rounded-xl p-5 bg-slate-950/40 flex flex-col h-full">
                 <div className="border-b border-slate-800 pb-2 mb-3">
-                  <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Assembled Markdown Output Preview</span>
-                  <p className="text-[10px] text-slate-500">Live preview compiled using active Character & environmental variables</p>
+                   <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Assembled Markdown Output Preview</span>
+                   <p className="text-[10px] text-slate-500">Live preview compiled using active Character & environmental variables</p>
                 </div>
                 <div className="flex-1 overflow-y-auto pr-1">
-                  {renderMarkdownPreview(getCompiledPreview(tempPromptTemplate))}
+                   {renderMarkdownPreview(getCompiledPreview(tempPromptTemplate))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: GOOGLE SHEETS LOGGING */}
+          {activeTab === 'logging' && (
+            <div className="max-w-3xl mx-auto space-y-6">
+              <div className="border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                  <Table className="w-4 h-4 text-emerald-400" />
+                  Google Sheets Generation Telemetry
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Automatically log generation parameters, token usage, durations, model statistics, and timestamps to a dedicated annual Google Spreadsheet with monthly tabs (<code className="text-indigo-300 font-mono text-[11px]">{formatSpreadsheetTitle()}</code> &rarr; <code className="text-indigo-300 font-mono text-[11px]">{formatMonthSheetName()}</code>).
+                </p>
+              </div>
+
+              {/* Status & Error Alerts */}
+              {googleAuthError && (
+                <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-semibold">Authentication or API Notice</strong>
+                    <span>{googleAuthError}</span>
+                  </div>
+                </div>
+              )}
+
+              {googleSuccessMessage && (
+                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{googleSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* Section 1: Account Connection */}
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">Google Workspace Authorization</h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Authorizes the client to create and append rows to your Google Sheets directly.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasGoogleAuth ? (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-950/60 border border-emerald-500/30 text-emerald-400">
+                          <Check className="w-3 h-3" /> Connected
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleDisconnectGoogle}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConnectGoogle}
+                        disabled={isAuthenticatingGoogle}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition-all disabled:opacity-50"
+                      >
+                        {isAuthenticatingGoogle ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>Connect Google Account</>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Logging Toggle */}
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <label htmlFor="sheets-logging-toggle" className="text-xs font-bold uppercase tracking-wider text-slate-200 cursor-pointer">
+                      Automatic Generation Logging
+                    </label>
+                    <p className="text-[11px] text-slate-500">Record a new row for every single-speaker or multi-speaker TTS generation.</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      id="sheets-logging-toggle"
+                      type="checkbox"
+                      checked={!!tempPreferences.sheetsLoggingEnabled}
+                      onChange={(e) => setTempPreferences(prev => ({ ...prev, sheetsLoggingEnabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* Spreadsheet Destination Settings */}
+                <div className="pt-3 border-t border-slate-800/80 space-y-3">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                    Target Spreadsheet ID or URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tempPreferences.sheetsSpreadsheetId || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        // Extract spreadsheetId if user pasted a full URL
+                        const match = val.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                        const id = match ? match[1] : val;
+                        setTempPreferences(prev => ({
+                          ...prev,
+                          sheetsSpreadsheetId: id,
+                          sheetsSpreadsheetUrl: id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : undefined
+                        }));
+                      }}
+                      placeholder="1BxiMVs0XR..."
+                      className="flex-1 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded px-3 py-2 text-slate-100 outline-none text-xs font-mono transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateNewSpreadsheet}
+                      disabled={isCreatingSpreadsheet}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded border border-slate-700 transition-colors shrink-0 disabled:opacity-50"
+                    >
+                      {isCreatingSpreadsheet ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          Create New Log Spreadsheet
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {tempPreferences.sheetsSpreadsheetId && (
+                    <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
+                      <span>Destination:</span>
+                      <a
+                        href={tempPreferences.sheetsSpreadsheetUrl || `https://docs.google.com/spreadsheets/d/${tempPreferences.sheetsSpreadsheetId}/edit`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 underline font-mono"
+                      >
+                        Open Spreadsheet <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Information / Schema Breakdown */}
+              <div className="bg-slate-950/20 border border-slate-800/60 rounded-xl p-4 text-xs text-slate-400 space-y-2">
+                <div className="font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  Logged Telemetry Data Fields
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Logged fields include: <code className="text-slate-400">Timestamp</code>, <code className="text-slate-400">Status</code>, <code className="text-slate-400">Response Time (ms)</code>, <code className="text-slate-400">Project / Chapter</code>, <code className="text-slate-400">Speaker(s) & Voice(s)</code>, <code className="text-slate-400">Model & Temperature</code>, <code className="text-slate-400">Snippet Indices</code>, <code className="text-slate-400">Text Chars & Words</code>, <code className="text-slate-400">Prompt Chars & Words</code>, <code className="text-slate-400">Request & Response Tokens</code>, <code className="text-slate-400">Audio Duration & Size (Bytes)</code>.
+                </p>
               </div>
             </div>
           )}

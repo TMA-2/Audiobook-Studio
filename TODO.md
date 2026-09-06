@@ -9,18 +9,28 @@
 - [o] TBD
 
 ## **DO NOW**
-- [ ] Test snippet selection
-- [ ] Add and test the new ["Interactions"][geminiTTS] API
-- [ ] Add statusbar (top or bottom, either way) to view selected chaaracters / tokens to stay under 8KB limit as well as total request data: # requests, # chars, words, tokens, audio size, duration, etc. per day. This will be read from a daily JSONL log which will write one entry per request with all the above fields. **Collect now, query later.**
-- [ ] Change markdown importing style to handle scenes, further promp notes, perhaps just using a Key: Value style under each chapter, speaker, scene, etc. heading 
+- [ ] Add statusbar (top or bottom, either way) to view [METRICS](#metrics)
+  - [ ] LOG TO GOOGLE SHEETS
+- [ ] Change markdown importing style to handle scenes, further promp notes, perhaps just using a Key: Value style under each chapter, speaker, scene, etc.
+- [ ] or instead of that... GOOGLE DOCS ALREADY
+  - [ ] probably make sure markdown goes through a pass to remove backslashes and replace double & single quotes with normal ASCII 
+- [x] Test snippet selection
+- [Z] BIG CRAP FAILURE. Add and test the new ["Interactions"][geminiTTS] API
 - [x] Implement multi-speaker API calls (but to use single-speaker you have to switch and shit, fukken annoyin')
   - [x] Fix prompt template, integrating
-  - [ ] Test generation of multiple snippets (same instructions and text) combined, ~500b, ~2kb, 4kb, 6kb, both in sequence and using the multi-speaker request config
-- [ ] GOOGLE DOCS INTEGRATION!!!!!!
+  - [/] Test generation of multiple snippets (same instructions and text) combined, ~500b, ~2kb, 4kb, 6kb, both in sequence and using the multi-speaker request config
 
 ## General
 - [x] Create Readme, Changelog, Todo, and agent instructions
 - [ ] Priorities, dammit!
+
+## Metrics
+- [ ] Collect: timestamp, req status, (error ID, error msg on failure), project name, # req snippets, # raw chars, # prompt chars, # raw words, # prompt words, req tokens, response tokens, audio size, audio duration
+  - [ ] Same philosophy as Activity Watch: collect now, query later.
+  - [ ] This will use a google sheet like `AudiobookStudioLog yyyy`, perhaps with a new sheet/tab per month. I don't think per-day sheets are necessary since my usage isn't very steady, spending more time writing, or working on the app, or generating and fine-tuning, and only the latter would produce log entries of course.
+- [ ] Display status on UI statusbar: selected characters / tokens to stay under 8KB limit as well as total request data:
+  - [ ] # requests, # chars, words, tokens, audio size, duration, etc. per day/hour/etc.
+- [ ] Add a simple function to send an API call to the countTokens
 
 ## UI / UX
 - [x] Speaker previewing
@@ -118,6 +128,7 @@
 - [ ] If this is ever hosted somewhere public, accepting a Gemini API key or else authentication with a Google account with Gemini / Cloud access
   - [ ] Also displaying its current quota. Or even just displaying my *own* quota lol.
 - [ ] An API endpoint to use the asynchronous audio generation in order to start and stop previewing without having to generate the full text.
+- [ ] Implement [Batch API](https://ai.google.dev/gemini-api/docs/batch-api#javascript_1) for generating full projects or chapters (i.e. > 10 parallel requests)
 
 ## Gemini API Handling (i.e. shit you have to infer and run tests on to deteremine how it *actually* works)
 - [x] Migrating to multi-speaker audio generation template which is largely the same, except you define an array of speakers (up to 2 currently) and tag them in the script. This will enable generating multiple contiguous snippets at once so long as it doesn't use more than 2 speakers and the total amount of text doesn't exceed 8KB. See [Gemini TTS prompting guide][promoptSchema] for detailed info.
@@ -128,8 +139,8 @@
    - [ ] Try to minimize prompt classifier false rejections: `Vague prompts may fail to trigger the speech synthesis classifier, resulting in a rejected request (PROHIBITED_CONTENT) or causing the model to read your style instructions and director's notes aloud. Validate your prompts by adding a clear preamble instructing the model to synthesize speech, and explicitly label where the actual spoken transcript begins.`
 
 
-[promptSchema]: https://ai.google.dev/gemini-api/docs/speech-generation#prompt-structure "Gemini prompting guide"
-[tokenCount]: https://ai.google.dev/gemini-api/docs/tokens "Gemini Token Counting"
+[promptSchema]: https://ai.google.dev/gemini-api/docs/generate-content/speech-generation#prompting-guide "Gemini prompting guide"
+[tokenCount]: https://ai.google.dev/gemini-api/docs/generate-content/tokens#count-tokens "Gemini Token Counting"
 [geminiTTS]: https://ai.google.dev/gemini-api/docs/speech-generation#javascript "generateContent / Interactions API"
 [contextCaching]: https://ai.google.dev/gemini-api/docs/generate-content/caching "Context Caching"
 <!--

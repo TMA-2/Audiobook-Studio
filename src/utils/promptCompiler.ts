@@ -28,12 +28,11 @@ export function compilePrompt(options: CompilePromptOptions): {
 ### {speaker_name}
 - Role: {speaker_role}
 - Voice: {speaker_voice}
-- Style: {speaker_instructions}
 
-## Scene: {scene_name}
-{scene_description}
+#### Style
+{speaker_instructions}
 
-### Context
+## Scene Context: {scene_name}
 {scene_context}
 
 ## TRANSCRIPT
@@ -147,7 +146,8 @@ export function compilePrompt(options: CompilePromptOptions): {
   const firstSnippetWithScene = targetSnippets.find(s => !!s.sceneId);
   if (firstSnippetWithScene && firstSnippetWithScene.sceneId) {
     activeScene = project.scenes?.find(sc => sc.id === firstSnippetWithScene.sceneId);
-  } else if (activeChapter && activeChapter.snippets) {
+  }
+  else if (activeChapter && activeChapter.snippets) {
     const chapterSnippetWithScene = activeChapter.snippets.find(s => !!s.sceneId);
     if (chapterSnippetWithScene && chapterSnippetWithScene.sceneId) {
       activeScene = project.scenes?.find(sc => sc.id === chapterSnippetWithScene.sceneId);
@@ -196,18 +196,20 @@ export function compilePrompt(options: CompilePromptOptions): {
   }
 
   // 6. Interpolate scene variables (or omit section if no scene assigned)
-  if (activeScene) {
-    compiled = compiled.replace(/\{scene_name\}/g, activeScene.name);
-    compiled = compiled.replace(/\{scene_description\}/g, activeScene.description || "No description.");
-    compiled = compiled.replace(/\{scene_context\}/g, activeScene.context || "No context.");
-  } else {
+  var sceneContextVal = activeScene?.context || activeScene?.description || "No context.";
+  var sceneName = activeScene?.name;
+  
+  if(!activeScene) {
+    sceneContextVal = '';
+    sceneName = '';
     // Leave scene section out if no scene assigned
-    const sceneBlockRegex = /(?:^|\n)(#{1,6}\s*Scene:?[^\n]*\n[\s\S]*?)(?=\n#{1,6}\s|\n<!--|$)/i;
+    const sceneBlockRegex = /(?:^|\n)(#{1,6}\s*Scene(?: Context)?:?[^\n]*\n[\s\S]*?)(?=\n#{1,6}\s|\n<!--|$)/i;
     compiled = compiled.replace(sceneBlockRegex, '');
-    compiled = compiled.replace(/\{scene_name\}/g, '');
-    compiled = compiled.replace(/\{scene_description\}/g, '');
-    compiled = compiled.replace(/\{scene_context\}/g, '');
   }
+  // Replace variable markers
+  compiled = compiled.replace(/\{scene_name\}/g, sceneName)
+    .replace(/\{scene_description\}/g, sceneContextVal)
+    .replace(/\{scene_context\}/g, sceneContextVal);
 
   // 7. Format and interpolate transcript
   let transcriptText = "";

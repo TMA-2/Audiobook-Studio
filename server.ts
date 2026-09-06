@@ -13,6 +13,7 @@ import { GoogleGenAI, GoogleGenAIOptions, Type, Modality, HarmCategory, HarmBloc
 import { createServer as createViteServer } from "vite";
 import { VoiceName, InteractionsMimeType } from "./src/types";
 import { parseMarkdown } from "./src/services/markdownParser";
+import { getAudioDuration } from "./src/services/audioService";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -283,18 +284,21 @@ app.post("/api/projects", (req, res) => {
 // Text-to-speech API route proxying to Gemini tts-preview
 app.post("/api/tts/generate", async (req, res) => {
   const text = req.body.text;
-  const speaker = req.body.speaker || req.body.voiceName;
-  // to be implemented
+  const requestSpeakers = req.body.speakers; // optional array of { name: string, voice: string }
+  const speaker = req.body.speaker || req.body.voiceName || (requestSpeakers && requestSpeakers[0] ? requestSpeakers[0].voice : undefined);
   const interactionsAPI = req.body.useInteractionsAPI || false;
   const prevResponseId = req.body.responseId || '';
   const pacing = req.body.pacing;
   const pitch = req.body.pitch;
   const emotion = req.body.emotion;
   const customInstructions = req.body.customInstructions || req.body.styleInstruction;
-  const model = req.body.model || req.body.modelName;
+  const model = req.body.modelId;
+  const mimeType = req.body.mimeType || 'audio/l16';
   const apiKeyOverride = req.body.apiKey; // client override api key
   const temperature = req.body.temperature !== undefined ? parseFloat(req.body.temperature) : 1.0;
-  const requestSpeakers = req.body.speakers; // optional array of { name: string, voice: string }
+  const snippetCount = req.body.snippetCount;
+  const rawTextChars = req.body.textChars;
+  const rawTextWords = req.body.textWords;
   
   if (!text || (!speaker && (!requestSpeakers || requestSpeakers.length === 0))) {
     return res.status(400).json({ error: "Missing required parameters: text and speaker (or speakers array) are mandatory." });
@@ -317,7 +321,7 @@ app.post("/api/tts/generate", async (req, res) => {
       `;
   }
 
-  console.log(`[Server] Synthesizing Block with Speaker [${speaker || 'multi-speaker'}] using model [${selectedModel}] and temperature [${temperature ?? 'default'}]: "${formattedPrompt.substring(0, 100)}..."`);
+  console.log(`[Server] Synthesizing Block with ${requestSpeakers} Speaker [${speaker || 'multi-speaker'}] using model [${selectedModel}] and temperature [${temperature ?? 'default'}]: "${formattedPrompt.substring(0, 100)}..."`);
 
   const ai = getGeminiClient(apiKeyOverride);
   if (!ai) {
@@ -329,7 +333,7 @@ app.post("/api/tts/generate", async (req, res) => {
     const start = performance.now();
 
     let audioData: string | null = null;
-    let mimeType = 'audio/l16';
+    let resMimeType: string | undefined = undefined;
     let responseId: string | undefined = undefined;
     let responseTime: number | undefined = undefined;
     let tokenCount: { prompt?: number; response?: number; total?: number } = {};
@@ -359,7 +363,7 @@ app.post("/api/tts/generate", async (req, res) => {
         // previous_interaction_id: prevResponseId,
         response_format: {
           type: "audio",
-          mime_type: "audio/l16"
+          mime_type: mimeType,
         },
         /* safety_settings: [
           {
@@ -372,7 +376,7 @@ app.post("/api/tts/generate", async (req, res) => {
           }
         ], */
         generation_config: {
-          temperature: temperature,
+          // temperature: temperature, // apparently this is NO LONGER SUPPORTED, WOW COOL, 8====D
           speech_config: (requestSpeakers && requestSpeakers.length > 1) ?
             requestSpeakers.map((s: any) => ({
               speaker: s.name,
@@ -398,7 +402,7 @@ app.post("/api/tts/generate", async (req, res) => {
         previous_interaction_id: prevResponseId,
         response_format: {
           type: "audio",
-          mime_type: "audio/l16"
+          mime_type: mimeType,
         },
         safety_settings: [
           {
@@ -436,7 +440,7 @@ app.post("/api/tts/generate", async (req, res) => {
       }
 
       audioData = response.output_audio?.data || null;
-      mimeType = response.output_audio?.mime_type || 'audio/l16';
+      resMimeType = response.output_audio?.mime_type || 'audio/l16';
       const finishReason = response.status; // success == "completed"
       
       responseId = response.id;
@@ -522,7 +526,7 @@ app.post("/api/tts/generate", async (req, res) => {
 
       const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
       audioData = inlineData?.data || null;
-      mimeType = inlineData?.mimeType || 'audio/l16';
+      resMimeType = inlineData?.mimeType || 'audio/l16';
 
       responseId = response.responseId;
       if (response.createTime) {
@@ -583,32 +587,51 @@ app.post("/api/tts/generate", async (req, res) => {
     const wordCount = text.trim().split(/\s+/).length;
     const reqCharCount = formattedPrompt.length;
     const reqWordCount = formattedPrompt.split(/\s+/).length;
+
+    try {
+      var audioDuration = await getAudioDuration(audioData, resMimeType);
+    }
+    catch (err: any) {
+      console.error(`Couldn't get audioDuration(audioData[${audioData.length}], ${resMimeType}) again. ${err.message}`)
+    }
     
     // Write request statistics to daily JSONL log
-    logTtsRequest({
+    const logInfo = {
       apiType: interactionsAPI ? 'interactions' : 'generateContent',
       model: selectedModel,
       speaker: speaker || 'multi-speaker',
+      rawTextChars,
       charCount,
       reqCharCount,
+      rawTextWords,
       wordCount,
       reqWordCount,
       elapsedMs,
+      snippetCount,
       promptTokens: tokenCount.prompt || 0,
       responseTokens: tokenCount.response || 0,
       totalTokens: tokenCount.total || 0,
+      audioDuration: audioDuration,
       responseId: responseId || null
-    });
+    };
 
-    console.info(`Response [${elapsedSec.toFixed(3)}s]: ${charCount}->${reqCharCount} char; ${wordCount}->${reqWordCount} words. Tokens: prompt=${tokenCount.prompt}, resp=${tokenCount.response}, total=${tokenCount.total}.`);
+    logTtsRequest(logInfo);
+
+    // console.table(logInfo);
+
+    console.info(`Response [${elapsedSec.toFixed(3)}s]: ${snippetCount} snippets, ${rawTextChars}->${charCount}->${reqCharCount} char; ${rawTextWords}->${wordCount}->${reqWordCount} words. Tokens: prompt=${tokenCount.prompt}, resp=${tokenCount.response}, total=${tokenCount.total}.`);
+    console.debug(logInfo);
     
     return res.json({
       success: true,
       audioData: audioData,
-      mimeType: mimeType,
+      mimeType: resMimeType,
       compiledPrompt: formattedPrompt,
       responseId: responseId,
       responseTime: responseTime,
+      promptTokens: tokenCount.prompt || 0,
+      responseTokens: tokenCount.response || 0,
+      totalTokens: tokenCount.total || 0,
       fallback: false
     });
 
@@ -655,6 +678,38 @@ app.get("/api/tts/stats", (req, res) => {
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/count-tokens - counts tokens for a text prompt using Gemini countTokens API
+app.post("/api/count-tokens", async (req, res) => {
+  try {
+    const { text, modelId } = req.body;
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'text' property" });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      const estimated = Math.ceil(text.length / 4);
+      return res.json({ totalTokens: estimated, estimated: true });
+    }
+
+    const model = modelId || "gemini-3.1-flash-tts-preview";
+    const result = await ai.models.countTokens({
+      model: model,
+      contents: [{ role: "user", parts: [{ text }] }]
+    });
+
+    return res.json({
+      totalTokens: result.totalTokens ?? Math.ceil(text.length / 4),
+      estimated: false
+    });
+  }
+  catch (err: any) {
+    console.warn("[Server] countTokens failed, using fallback estimate:", err?.message);
+    const estimated = Math.ceil((req.body?.text || "").length / 4);
+    return res.json({ totalTokens: estimated, estimated: true });
   }
 });
 
@@ -707,7 +762,7 @@ RAW TEXT:
 ${screenplayText}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         responseMimeType: "application/json",

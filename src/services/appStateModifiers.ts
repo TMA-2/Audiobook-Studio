@@ -137,8 +137,8 @@ export function splitSnippet(prev: Project, chapterId: string, snippetId: string
       if (snippetIndex === -1) return c;
       
       const snippet = c.snippets[snippetIndex];
-      const text1 = snippet.text.substring(0, cursorPosition);
-      const text2 = snippet.text.substring(cursorPosition);
+      const text1 = snippet.text.substring(0, cursorPosition).trim();
+      const text2 = snippet.text.substring(cursorPosition).trim();
 
       const newSnippets = [...c.snippets];
       newSnippets[snippetIndex] = { ...snippet, text: text1, status: 'idle', errorMessage: undefined };
@@ -147,6 +147,7 @@ export function splitSnippet(prev: Project, chapterId: string, snippetId: string
         order: snippetIndex + 1,
         text: text2,
         speakerId: snippet.speakerId,
+        sceneId: snippet.sceneId,
         status: 'idle',
         isCollapsed: false,
         generations: [],
@@ -173,7 +174,7 @@ export function joinSnippetWithNext(prev: Project, chapterId: string, snippetId:
       const newSnippets = [...c.snippets];
       newSnippets[snippetIndex] = { 
         ...currentSnippet, 
-        text: currentSnippet.text + (currentSnippet.text.endsWith(' ') ? '' : ' ') + nextSnippet.text,
+        text: (currentSnippet.text.trim() + (currentSnippet.text.trim() ? ' ' : '') + nextSnippet.text.trim()).trim(),
         status: 'idle',
         errorMessage: undefined
       };

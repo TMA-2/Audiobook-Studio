@@ -103,14 +103,31 @@ export type AudioEncoding = 'M4A' | 'OGG_OPUS' | 'MP3' | 'WAV';
 
 export interface Generation {
   id: string;
-  snippetId: string;
+  snippetId: string | string[];
   speakerId: string | null;
+  sceneId?: string | null;
   timestamp: string | number;
   model: string;
   text: string;
   audioMimeType: string;
   duration: number;
+  temperature?: number;
+  name?: string;
+  promptTokens?: number;
+  candidatesTokens?: number;
+  totalTokens?: number;
 }
+
+/*
+  "id": "5b9c6970-8b30-4514-9948-dff4ffdb6334",
+  "snippetId": "24fb5b3f-5ab8-4515-b410-dd2599813f5e",
+  "speakerId": "a5f49cc4-ccf4-441e-b7ae-90fc20a161a1",
+  "timestamp": "2026-08-07T11:21:31.707Z",
+  "text": "I… may have implied, just a little, that… his eyes and teeth might go from… inside his head… to outside his head. On the condition that, uh… he looked at you the wrong way. Or at all. *Ahem*.",
+  "audioMimeType": "audio/l16; rate=24000; channels=1",
+  "duration": 72.4,
+  "data": "b64"
+*/
 
 export interface Snippet {
   id: string;
@@ -199,6 +216,9 @@ export interface UserPreferences {
   theme?: 'dark' | 'light' | 'system';
   isDraggableSettingsEnabled?: boolean;
   keyboardShortcutsEnabled?: boolean;
+  sheetsLoggingEnabled?: boolean;
+  sheetsSpreadsheetId?: string;
+  sheetsSpreadsheetUrl?: string;
 }
 
 export interface GenerationRequest {

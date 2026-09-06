@@ -3,7 +3,7 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "FiraCode Mono","JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 html, body, #root {
@@ -11,6 +11,55 @@ html, body, #root {
   margin: 0;
   padding: 0;
   background-color: #020617; /* Slate-950 */
+}
+
+.fg-onedark-red {
+  color: #E06C75;
+}
+.fg-onedark-black {
+  color: #282C34;
+}
+.fg-onedark-blue {
+  color: #61afef;
+}
+.fg-onedark-cyan {
+  color: #56B6C2;
+}
+.fg-onedark-green {
+  color: #98C379;
+}
+.fg-onedark-purple {
+  color: #C678DD;
+}
+.fg-onedark-white {
+  color: #DCDFE4;
+}
+.fg-onedark-yellow {
+  color: #E5C07B;
+}
+.bg-onedark-red {
+  background-color: #E06C75;
+}
+.bg-onedark-black {
+  background-color: #282C34;
+}
+.bg-onedark-blue {
+  background-color: #61afef;
+}
+.bg-onedark-cyan {
+  background-color: #56B6C2;
+}
+.bg-onedark-green {
+  background-color: #98C379;
+}
+.bg-onedark-purple {
+  background-color: #C678DD;
+}
+.bg-onedark-white {
+  background-color: #DCDFE4;
+}
+.bg-onedark-yellow {
+  background-color: #E5C07B;
 }
 
 /* Custom scrollbars for dark layout components */

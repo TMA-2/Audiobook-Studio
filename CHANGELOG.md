@@ -7,11 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-01
+
+### Fixed
+- Resolved `Missing required parameter client_id` by implementing client-side Firebase Auth popup integration with `firebase-applet-config.json` for Google Workspace OAuth token acquisition with memory-only token caching.
+- Provisioned cloud OAuth client configuration for Google Sheets scopes.
+
+## [0.13.0] - 2026-08-31
+
+### Added
+- Implemented Google Sheets Generation Telemetry Logging:
+  - Added `sheetsService.ts` for managing annual spreadsheets (`AudiobookStudioLog yyyy`) with monthly tabs (`yyyy-MM`), column headers, and row appending.
+  - Added `googleAuthService.ts` providing client-side Google Workspace OAuth token acquisition using Google Identity Services (`initTokenClient`).
+  - Added `generationLogger.ts` utility to format and asynchronously append single-speaker and multi-speaker TTS telemetry rows without blocking playback or UI threads.
+  - Added "Google Sheets Logging" tab to `SettingsDialogue.tsx` with one-click Google Account connection/disconnection, automatic logging toggle, target spreadsheet ID/URL configuration, and one-click new spreadsheet creation.
+  - Added token and execution metrics reporting to `server.ts` and `geminiService.ts` returning `responseTimeMs`, `promptTokens`, `responseTokens`, and `totalTokens`.
+  - Added unit test suites `tests/sheetsService.test.ts` and `tests/generationLogger.test.ts`.
+
+## [0.12.1] - 2026-08-30
+
+### Fixed
+- Fixed sidecar JSON parser in `parseSidecarStream` failing on generations containing nested arrays (such as `snippetId: string[]`) by appending closing brackets `]` to the item buffer when `itemDepth > 0`.
+- Added support for `"data"` property as an alternative to `"audioData"` and array format for `snippetId` during sidecar streaming import.
+- Fixed "Scroll to Top" button by attaching `scrollContainerRef` to the active chapter scrollable viewport rather than `window`.
+- Added audio data validation to "Export Concatenated Chapter Audio" and "Export Concatenated Audiobook" to verify audio exists in IndexedDB before generating files, preventing 1KB empty WAV file exports. Deduplicated contiguous snippets sharing the same active generation during concatenation.
+
+## [0.12.0] - 2026-08-30
+
+### Added
+- Added streaming sidecar JSON importer (`src/utils/sidecarImporter.ts`) to stream large sidecar exports chunk-by-chunk and save audio directly to IndexedDB.
+- Added import progress overlay showing processed megabytes, percentage, and parsed generation counts in real time.
+- Added descriptive error formatting with byte location context for malformed or truncated JSON files.
+
+## [0.11.1] - 2026-08-19
+
+### Fixed
+- Fixed sticky chapter header positioning by removing `overflow-hidden` on parent chapter container and pinning header cleanly to the top of the active chapter scroll area.
+- Fixed `ResizeObserver loop completed with undelivered notifications` exception by observing snippet editor parent containers with debounced `requestAnimationFrame` height adjustments.
+
+## [0.11.0] - 2026-08-19
+
+### Added
+- Implemented `GenerationGroupContainer` with yellow theme (`border-yellow-500/60`), custom editable generation label, cumulative text/token stats, and vertical iconified playback controls wrapping contiguous snippets sharing an active generation.
+- Added `groupSnippetsByGeneration`, `formatDefaultGenerationLabel`, and `calculateGenerationStats` utilities for multi-snippet generation clustering.
+- Added backend endpoint `/api/count-tokens` and frontend service `getTokenCount` for accurate Gemini token counting.
+- Added `N/T` snippet index pill (e.g., `3/24`) next to the snippet checkbox for immediate position awareness within chapters.
+- Added "Scroll to top" button to chapter header actions.
+- Added continuous playback traversal supporting generation group steps via `playFromSnippetById`.
+
 ### Changed
+- Unified Chapter Header with sticky layout and dynamic stats sub-row showing selection metrics (selected characters/words, full prompt characters/words, and overhead characters) when snippets are selected, or chapter metrics when none are selected.
+- Updated bulk action buttons in selection header to clean labels ("Generate", "Delete") without redundant "selected" suffix.
+- Auto-sized speaker and scene dropdown selector widths to fit content (`w-auto` / `max-w-[180px]`).
+- Reordered snippet action buttons: moved `Add Below` between `Combine with Next` and `Delete`.
+
+### Fixed
+- Fixed audio sidecar generation duplication by deduplicating unique generation IDs during export.
+- Reduced audio sidecar JSON payload size by removing redundant metadata fields (`text`, `speakerId`, `model`, etc.) from exported generation items and storing snippet associations as `snippetId: string[]`.
+- Updated sidecar import logic to support minimal generation payloads while maintaining backwards compatibility with legacy sidecar files.
+
+## [0.10.0] - 2026-08-07
+
+### Added
+- Implemented streaming sidecar JSON export (`exportSidecarStream`) using `FileSystemWritableFileStream` via `window.showSaveFilePicker()` when supported, with chunked Blob stream fallback for browsers without File System Access API.
+- Replaced monolithic in-memory array aggregation during audio sidecar export to stream audio records directly from IndexedDB without loading all base64 buffers into a single JS object.
+- Added progress feedback during sidecar export in the main application header.
+
+## [0.9.3] - 2026-08-06
+
+### Fixed
+- Fixed empty voiceName fallback in combined TTS generation mode when single-speaker or single-snippet selections are synthesized, preventing 500 internal server errors.
+
+## [0.9.2] - 2026-08-06
+
+### Added
+- Implemented rate-limited parallel batch execution for individual audio generation mode (max 9 concurrent requests, max 10 requests launched per 60-second window) across bulk selection, chapter generation, and generate-all actions.
+- Added temperature tracking and badge indicators to Generation objects and Generation History cards in the sidebar.
+
+### Changed
+- Updated Prompt Template Editor and prompt compiler to map `{scene_context}` to `activeScene.context || activeScene.description || "No context."` and removed redundant `{scene_description}`.
 - Interactions API is not to be used until such time as I figure out what its stupid problem is, perhaps contacting support about it.
 - Commented out a few sections of the Interactions request object that I'm not positive are supported, such as previous_interaction_id, safety_settings, etc.
 - Included a TTS request example *direct* from [their stupid documentation](https://ai.google.dev/gemini-api/docs/speech-generation#javascript) to test later. perhaps passing certain settings is limiting which models can be called, I don't know.
-- `server.ts` had speech_config check for `requestSpeakers.length > 1` instead of 0 so only two speakers will map, otherwise one, as the multi-speaker endpoint won't accept a single array object with both name/voice, *I think*.
+- `server.ts` had `speech_config` check for `requestSpeakers.length > 1` instead of 0 so only two speakers will map, otherwise one, as the multi-speaker endpoint won't accept a single array object with both name/voice, *I think*.
+
+### Fixed
+- Fixed snippet splitting logic to pass down parent `sceneId` to both child snippets.
+- Added confirmation modal and Trash icon button for chapter deletion in active chapter header.
+- Ensured `activeGenerationId` is validated against the snippet `generations` array before enabling playback or export controls.
 
 ## [0.9.1] - 2026-07-27
 

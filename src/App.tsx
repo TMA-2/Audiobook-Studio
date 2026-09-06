@@ -32,7 +32,11 @@ import {
   Minimize2,
   Maximize2,
   BookOpen,
-  Clapperboard
+  Clapperboard,
+  CheckSquare,
+  FileText,
+  Sparkles,
+  Layers
 } from 'lucide-react';
 import { Project, Chapter, Snippet, Speaker, AudioEncoding, Generation, Scene, GEMINI_VOICES, GEMINI_MODELS } from './types';
 import { generateTTS } from './services/geminiService';
@@ -40,12 +44,19 @@ import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMCh
 import { generateId } from './services/idService';
 import { parseMarkdown } from './services/markdownParser';
 import { saveAudio, getAudio, deleteAudio } from './services/dbService';
+import { parseSidecarStream, StreamingImportProgress } from './utils/sidecarImporter';
 import { formatDuration, formatError, getSpeakerStyles } from './services/utils';
 import * as StateModifiers from './services/appStateModifiers';
 import WaveformPlayer from './components/WaveformPlayer';
 import { SettingsDialogue } from './components/SettingsDialogue';
+import { GenerationGroupContainer } from './components/GenerationGroupContainer';
 import { getGenerationValidationState } from './utils/generationValidator';
 import { compilePrompt } from './utils/promptCompiler';
+import { exportSidecarStream } from './utils/sidecarExporter';
+import { groupSnippetsByGeneration, GenerationGroup } from './utils/generationGrouping';
+import { UserPreferences } from './types';
+import { loadUserPreferences } from './services/preferenceService';
+import { createLogPayloadFromGeneration, logGenerationEvent } from './utils/generationLogger';
 
 // --- Constants ---
 const defaultEncoding: AudioEncoding = 'M4A';
@@ -90,6 +101,16 @@ const INITIAL_PROJECT: Project = {
 };
 
 //#region Global Helper Components
+/**
+ * @name IconButton
+ * @summary A simple small button consisting of a single SVG icon
+ * @param icon The Lucide icon to use `icon={}`
+ * @param onClick The onClick event handler callback
+ * @param title The tooltip that will show on hover.
+ * @param className Optional additional CSS class names to assign.
+ * @param disabled Optional disable button
+ * @returns <button><icon/></button>
+ */
 function IconButton({ icon: Icon, onClick, title, className = '', disabled = false }: any) {
   return (
     <button 
@@ -119,12 +140,16 @@ export default function App() {
   const [project, setProject] = useState<Project>(INITIAL_PROJECT);
   const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
   const [previewingSpeakerId, setPreviewingSpeakerId] = useState<string | null>(null);
+  const [isExportingSidecar, setIsExportingSidecar] = useState(false);
+  const [sidecarExportProgress, setSidecarExportProgress] = useState<string | null>(null);
+  const [sidecarImportProgress, setSidecarImportProgress] = useState<StreamingImportProgress | null>(null);
   
   // Settings dialogue state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'project' | 'speakers' | 'scenes' | 'prompt'>('project');
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'project' | 'speakers' | 'scenes' | 'prompt' | 'logging'>('project');
   const [settingsAutoAddSpeaker, setSettingsAutoAddSpeaker] = useState(false);
   const [settingsAutoAddScene, setSettingsAutoAddScene] = useState(false);
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>(() => loadUserPreferences());
 
   // Custom confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -144,7 +169,7 @@ export default function App() {
    * @param autoAddScene Whether to automatically append a new acoustic scene.
    */
   const openSettings = (
-    tab: 'project' | 'speakers' | 'scenes' | 'prompt' = 'project',
+    tab: 'project' | 'speakers' | 'scenes' | 'prompt' | 'logging' = 'project',
     autoAddSpeaker = false,
     autoAddScene = false
   ) => {
@@ -182,7 +207,7 @@ export default function App() {
   // Dynamically compute the validation status for bulk operations
   const currentSelectionValidation = (() => {
     if (selectedSnippetIds.size === 0) return { valid: true };
-    const list = Array.from(selectedSnippetIds)
+    const list = (Array.from(selectedSnippetIds) as string[])
       .map(id => {
         for (const c of project.chapters) {
           const s = c.snippets.find(x => x.id === id);
@@ -204,6 +229,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
   const sidecarInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // --- Auto-Save / Load ---
   const [isLoaded, setIsLoaded] = useState(false);
@@ -408,115 +434,107 @@ export default function App() {
 
   //#region Sidecar Export / Import
   const handleExportSidecar = async () => {
-    const generationsList: any[] = [];
+    setIsExportingSidecar(true);
+    setSidecarExportProgress("Preparing export...");
 
-    for (const chapter of project.chapters) {
-      for (const snippet of chapter.snippets) {
-        for (const gen of snippet.generations) {
-          const audio = await getAudio(gen.id);
-          if (audio) {
-            generationsList.push({
-              id: gen.id,
-              snippetId: gen.snippetId,
-              speakerId: gen.speakerId,
-              timestamp: gen.timestamp,
-              model: gen.model,
-              text: gen.text,
-              audioMimeType: gen.audioMimeType,
-              duration: gen.duration,
-              data: audio.base64Data
-            });
-          }
+    try {
+      await exportSidecarStream(project, getAudio, (completed, total) => {
+        if (total > 0) {
+          setSidecarExportProgress(`${completed}/${total}`);
         }
-      }
+      });
     }
-
-    const sidecarData = {
-      projectName: project.title,
-      lastUpdate: new Date().toISOString(),
-      generations: generationsList
-    };
-
-    const blob = new Blob([JSON.stringify(sidecarData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(project.title || 'project').replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.audio.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    catch (err: any) {
+      console.error("Sidecar export error:", err);
+      alert(`Failed to export audio sidecar: ${err?.message || err}`);
+    }
+    finally {
+      setIsExportingSidecar(false);
+      setSidecarExportProgress(null);
+    }
   };
 
-  const handleImportSidecar = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportSidecar = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const data = JSON.parse(e.target?.result as string);
-        if (!data.generations || !Array.isArray(data.generations)) {
-          throw new Error("Invalid sidecar format: missing generations array.");
+    try {
+      setSidecarImportProgress({
+        bytesProcessed: 0,
+        totalBytes: file.size,
+        percent: 0,
+        processedCount: 0
+      });
+
+      const stream = file.stream();
+      const result = await parseSidecarStream(stream, file.size, {
+        onSaveAudio: async (id, data, mimeType) => {
+          await saveAudio(id, data, mimeType);
+        },
+        onProgress: (progress) => {
+          setSidecarImportProgress(progress);
         }
+      });
 
-        let importedCount = 0;
-        for (const gen of data.generations) {
-          if (gen.id && gen.data) {
-            await saveAudio(gen.id, gen.data, gen.audioMimeType || 'audio/wav', gen.duration);
-            importedCount++;
-          }
-        }
+      const importedGens = result.importedGenerations;
+      const importedCount = importedGens.length;
 
-        setProject(prev => {
-          const updatedChapters = prev.chapters.map(chapter => {
-            return {
-              ...chapter,
-              snippets: chapter.snippets.map(snippet => {
-                const sidecarGensForSnippet = data.generations.filter((g: any) => g.snippetId === snippet.id);
-                if (sidecarGensForSnippet.length === 0) return snippet;
-
-                const existingGenIds = new Set(snippet.generations.map(g => g.id));
-                const gensToAdd: Generation[] = [];
-
-                for (const sg of sidecarGensForSnippet) {
-                  if (!existingGenIds.has(sg.id)) {
-                    gensToAdd.push({
-                      id: sg.id,
-                      snippetId: sg.snippetId,
-                      speakerId: sg.speakerId,
-                      timestamp: sg.timestamp,
-                      model: sg.model,
-                      text: sg.text,
-                      audioMimeType: sg.audioMimeType,
-                      duration: sg.duration
-                    });
-                  }
+      setProject(prev => {
+        const updatedChapters = prev.chapters.map(chapter => {
+          return {
+            ...chapter,
+            snippets: chapter.snippets.map(snippet => {
+              const sidecarGensForSnippet = importedGens.filter((g: any) => {
+                if (Array.isArray(g.snippetId)) {
+                  return g.snippetId.includes(snippet.id);
                 }
+                return g.snippetId === snippet.id;
+              });
+              if (sidecarGensForSnippet.length === 0) return snippet;
 
-                const mergedGenerations = [...snippet.generations, ...gensToAdd];
-                mergedGenerations.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                const activeGenerationId = snippet.activeGenerationId || (mergedGenerations.length > 0 ? mergedGenerations[0].id : null);
+              const existingGenIds = new Set(snippet.generations.map(g => g.id));
+              const gensToAdd: Generation[] = [];
 
-                return {
-                  ...snippet,
-                  generations: mergedGenerations,
-                  activeGenerationId,
-                  status: mergedGenerations.length > 0 ? 'done' : 'idle'
-                };
-              })
-            };
-          });
+              for (const sg of sidecarGensForSnippet) {
+                if (!existingGenIds.has(sg.id)) {
+                  gensToAdd.push({
+                    id: sg.id,
+                    snippetId: snippet.id,
+                    speakerId: sg.speakerId || snippet.speakerId || null,
+                    timestamp: sg.timestamp || new Date().toISOString(),
+                    model: sg.model || prev.settings.model.id || 'gemini-3.1-flash-tts-preview',
+                    text: sg.text || snippet.text,
+                    audioMimeType: sg.audioMimeType || 'audio/wav',
+                    duration: sg.duration
+                  });
+                }
+              }
 
-          return { ...prev, chapters: updatedChapters };
+              const mergedGenerations = [...snippet.generations, ...gensToAdd];
+              mergedGenerations.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+              const activeGenerationId = snippet.activeGenerationId || (mergedGenerations.length > 0 ? mergedGenerations[0].id : null);
+
+              return {
+                ...snippet,
+                generations: mergedGenerations,
+                activeGenerationId,
+                status: mergedGenerations.length > 0 ? 'done' : 'idle'
+              };
+            })
+          };
         });
 
-        alert(`Successfully imported and restored ${importedCount} audio generations from sidecar file!`);
-      } catch (err: any) {
-        console.error(err);
-        alert(`Failed to parse sidecar file: ${err.message || String(err)}`);
-      }
-    };
-    reader.readAsText(file);
-    if (sidecarInputRef.current) sidecarInputRef.current.value = '';
+        return { ...prev, chapters: updatedChapters };
+      });
+
+      alert(`Successfully imported and restored ${importedCount} audio generations from sidecar file!`);
+    } catch (err: any) {
+      console.error('Sidecar import failed:', err);
+      alert(`Failed to parse sidecar file: ${err?.message || String(err)}`);
+    } finally {
+      setSidecarImportProgress(null);
+      if (sidecarInputRef.current) sidecarInputRef.current.value = '';
+    }
   };
   //#endregion
 
@@ -547,31 +565,43 @@ export default function App() {
     const startIndex = chapter.snippets.findIndex(s => s.id === startSnippetId);
     if (startIndex === -1) return;
 
-    const snippetsToPlay = chapter.snippets.slice(startIndex).filter(s => s.activeGenerationId);
-    if (snippetsToPlay.length === 0) return;
+    const playbackItems: Array<{ targetId: string; generationId: string }> = [];
+    let cursor = startIndex;
+    while (cursor < chapter.snippets.length) {
+      const current = chapter.snippets[cursor];
+      if (current.activeGenerationId && current.generations.some(g => g.id === current.activeGenerationId)) {
+        const activeGenId = current.activeGenerationId;
+        playbackItems.push({ targetId: current.id, generationId: activeGenId });
+        // Skip subsequent contiguous snippets sharing this same generation
+        while (cursor < chapter.snippets.length && chapter.snippets[cursor].activeGenerationId === activeGenId) {
+          cursor++;
+        }
+      }
+      else {
+        cursor++;
+      }
+    }
+
+    if (playbackItems.length === 0) return;
 
     let currentIndex = 0;
 
     const playNext = async () => {
-      if (currentIndex >= snippetsToPlay.length) {
+      if (currentIndex >= playbackItems.length) {
         setActivePlayingId(null);
         return;
       }
       
-      const snippet = snippetsToPlay[currentIndex];
-      if (snippet.activeGenerationId) {
-        setActivePlayingId(snippet.id);
-        const audio = await getAudio(snippet.activeGenerationId);
-        if (audio) {
-          playAudio(audio.base64Data, audio.mimeType, () => {
-            currentIndex++;
-            playNext();
-          });
-        } else {
+      const item = playbackItems[currentIndex];
+      setActivePlayingId(item.targetId);
+      const audio = await getAudio(item.generationId);
+      if (audio) {
+        playAudio(audio.base64Data, audio.mimeType, () => {
           currentIndex++;
           playNext();
-        }
-      } else {
+        });
+      }
+      else {
         currentIndex++;
         playNext();
       }
@@ -580,8 +610,71 @@ export default function App() {
     playNext();
   }, [project, handleStopAudio]);
 
+  const handleUpdateGenerationName = useCallback((chapterId: string, generationId: string, newName: string) => {
+    setProject(prev => ({
+      ...prev,
+      chapters: prev.chapters.map(chapter => {
+        if (chapter.id !== chapterId) return chapter;
+        return {
+          ...chapter,
+          snippets: chapter.snippets.map(snippet => ({
+            ...snippet,
+            generations: snippet.generations.map(gen => {
+              if (gen.id === generationId) {
+                return { ...gen, name: newName };
+              }
+              return gen;
+            })
+          }))
+        };
+      })
+    }));
+  }, []);
+
+  const handleExportGroupAudio = useCallback(async (generation: Generation) => {
+    const audio = await getAudio(generation.id);
+    if (!audio) {
+      alert("Audio data not found in local database. Please regenerate.");
+      return;
+    }
+
+    const sanitize = (str: string) => str.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').toLowerCase();
+    const pName = sanitize(project.title) || 'project';
+    const genName = sanitize(generation.name || generation.id);
+
+    const binaryString = atob(audio.base64Data);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const sampleRate = parseInt(project.settings.sampleRate) || 24000;
+    const blob = createWavBlob(bytes, sampleRate);
+    const ext = 'wav';
+    const filename = `${pName}-${genName}.${ext}`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [project]);
+
+  /**
+   * Smoothly scrolls the active chapter editor container to the top.
+   */
+  const handleScrollToTop = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, []);
+
   const playSnippetAudio = useCallback((snippet: Snippet) => {
-    if (!snippet.activeGenerationId) return;
+    if (!snippet.activeGenerationId || !snippet.generations.some(g => g.id === snippet.activeGenerationId)) return;
     playSnippetAudioById(snippet.activeGenerationId);
   }, [playSnippetAudioById]);
 
@@ -592,7 +685,7 @@ export default function App() {
     
     const sIndex = chapter.snippets.findIndex(s => s.id === snippetId);
     const snippet = chapter.snippets[sIndex];
-    if (!snippet || !snippet.activeGenerationId) return;
+    if (!snippet || !snippet.activeGenerationId || !snippet.generations.some(g => g.id === snippet.activeGenerationId)) return;
 
     const audio = await getAudio(snippet.activeGenerationId);
     if (!audio) {
@@ -629,26 +722,51 @@ export default function App() {
   //#endregion
 
   //#region Concatenation Exports
+  /**
+   * Concatenates and exports all generated audio snippets in a single chapter as a WAV file.
+   * Skips contiguous generation duplicates sharing the same audio generation ID.
+   * Validates that valid audio data exists before generating files.
+   * 
+   * @param chapterId The identifier of the chapter to export.
+   */
   const handleExportChapterAudio = async (chapterId: string) => {
     const chapter = project.chapters.find(c => c.id === chapterId);
     if (!chapter) return;
 
-    const activeGens = chapter.snippets
-      .map(s => s.activeGenerationId)
-      .filter((id): id is string => id !== null);
+    // Collect distinct active generation IDs in order, deduplicating contiguous snippets sharing the same generation
+    const genIdsToExport: string[] = [];
+    let cursor = 0;
+    while (cursor < chapter.snippets.length) {
+      const current = chapter.snippets[cursor];
+      if (current.activeGenerationId && current.generations.some(g => g.id === current.activeGenerationId)) {
+        const activeGenId = current.activeGenerationId;
+        genIdsToExport.push(activeGenId);
+        while (cursor < chapter.snippets.length && chapter.snippets[cursor].activeGenerationId === activeGenId) {
+          cursor++;
+        }
+      }
+      else {
+        cursor++;
+      }
+    }
 
-    if (activeGens.length === 0) {
+    if (genIdsToExport.length === 0) {
       alert("No generated audio found in this chapter.");
       return;
     }
 
     try {
       const base64Chunks: string[] = [];
-      for (const genId of activeGens) {
+      for (const genId of genIdsToExport) {
         const audio = await getAudio(genId);
-        if (audio) {
+        if (audio && audio.base64Data && audio.base64Data.trim().length > 0) {
           base64Chunks.push(audio.base64Data);
         }
+      }
+
+      if (base64Chunks.length === 0) {
+        alert("Audio data not found in local database for this chapter. Please regenerate audio first.");
+        return;
       }
 
       const sampleRate = parseInt(project.settings.sampleRate) || 24000;
@@ -663,34 +781,54 @@ export default function App() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) {
+    }
+    catch (e) {
       console.error("Failed to concatenate chapter audio:", e);
       alert("Failed to export concatenated chapter audio.");
     }
   };
 
+  /**
+   * Concatenates and exports all generated audio snippets across all chapters in the project as a single WAV file.
+   * Skips contiguous generation duplicates sharing the same audio generation ID.
+   * Validates that valid audio data exists before generating files.
+   */
   const handleExportFullProjectAudio = async () => {
-    const activeGens: string[] = [];
+    const genIdsToExport: string[] = [];
     for (const chapter of project.chapters) {
-      for (const snippet of chapter.snippets) {
-        if (snippet.activeGenerationId) {
-          activeGens.push(snippet.activeGenerationId);
+      let cursor = 0;
+      while (cursor < chapter.snippets.length) {
+        const current = chapter.snippets[cursor];
+        if (current.activeGenerationId && current.generations.some(g => g.id === current.activeGenerationId)) {
+          const activeGenId = current.activeGenerationId;
+          genIdsToExport.push(activeGenId);
+          while (cursor < chapter.snippets.length && chapter.snippets[cursor].activeGenerationId === activeGenId) {
+            cursor++;
+          }
+        }
+        else {
+          cursor++;
         }
       }
     }
 
-    if (activeGens.length === 0) {
+    if (genIdsToExport.length === 0) {
       alert("No generated audio found in the entire project.");
       return;
     }
 
     try {
       const base64Chunks: string[] = [];
-      for (const genId of activeGens) {
+      for (const genId of genIdsToExport) {
         const audio = await getAudio(genId);
-        if (audio) {
+        if (audio && audio.base64Data && audio.base64Data.trim().length > 0) {
           base64Chunks.push(audio.base64Data);
         }
+      }
+
+      if (base64Chunks.length === 0) {
+        alert("Audio data not found in local database for the project. Please regenerate audio first.");
+        return;
       }
 
       const sampleRate = parseInt(project.settings.sampleRate) || 24000;
@@ -705,7 +843,8 @@ export default function App() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) {
+    }
+    catch (e) {
       console.error("Failed to concatenate full project audio:", e);
       alert("Failed to export concatenated full project audio.");
     }
@@ -789,16 +928,14 @@ export default function App() {
   }, [focusedChapterId, focusedSnippetId, updateSnippetState]);
 
   const handleDeleteGeneration = useCallback(async (generationId: string) => {
-    if (!focusedChapterId || !focusedSnippetId) return;
     try {
       await deleteAudio(generationId);
       setProject(prev => {
         const updatedChapters = prev.chapters.map(c => {
-          if (c.id !== focusedChapterId) return c;
           return {
             ...c,
             snippets: c.snippets.map(s => {
-              if (s.id !== focusedSnippetId) return s;
+              if (!s.generations.some(g => g.id === generationId) && s.activeGenerationId !== generationId) return s;
               const nextGens = s.generations.filter(g => g.id !== generationId);
               let nextActiveId = s.activeGenerationId;
               if (nextActiveId === generationId) {
@@ -819,7 +956,7 @@ export default function App() {
       console.error("Failed to delete generation:", err);
       alert("Failed to delete generation: " + (err.message || String(err)));
     }
-  }, [focusedChapterId, focusedSnippetId]);
+  }, []);
 
   const handlePreviewVoice = useCallback(async (speaker: Speaker) => {
     handleStopAudio();
@@ -831,7 +968,11 @@ export default function App() {
         previewText,
         speaker.voice,
         combinedStyle,
-        project.settings.model.name
+        project.settings.model.id,
+        {
+          textChars: previewText.length,
+          textWords: previewText.split(/\s+/g).length
+        }
       );
       playAudio(data, mimeType, () => setPreviewingSpeakerId(null));
     } catch (err: any) {
@@ -899,6 +1040,61 @@ export default function App() {
 
   //#region Generation Logic (Async)
 
+  /**
+   * Executes a batch of tasks with a max concurrency limit and a rate-limit sliding window.
+   * - Max concurrent active tasks: 9
+   * - Max tasks launched per 60-second window: 10
+   */
+  const runRateLimitedBatch = useCallback(async <T,>(
+    items: T[],
+    taskFn: (item: T) => Promise<void>,
+    maxConcurrency = 9,
+    maxPerMinute = 10
+  ): Promise<void> => {
+    if (items.length === 0) return;
+    const launchTimestamps: number[] = [];
+    let activeCount = 0;
+    let index = 0;
+
+    return new Promise((resolve) => {
+      const launchNext = () => {
+        if (index >= items.length && activeCount === 0) {
+          resolve();
+          return;
+        }
+
+        while (index < items.length && activeCount < maxConcurrency) {
+          const now = Date.now();
+          while (launchTimestamps.length > 0 && now - launchTimestamps[0] >= 60000) {
+            launchTimestamps.shift();
+          }
+
+          if (launchTimestamps.length >= maxPerMinute) {
+            const oldestTime = launchTimestamps[0];
+            const delay = Math.max(100, 60000 - (now - oldestTime) + 100);
+            setTimeout(launchNext, delay);
+            return;
+          }
+
+          const currentItem = items[index++];
+          activeCount++;
+          launchTimestamps.push(Date.now());
+
+          taskFn(currentItem)
+            .catch(err => {
+              console.error("Rate-limited batch task error:", err);
+            })
+            .finally(() => {
+              activeCount--;
+              launchNext();
+            });
+        }
+      };
+
+      launchNext();
+    });
+  }, []);
+
   const handleGenerateSnippetAsync = async (chapterId: string, snippetId: string) => {
     const chapter = project.chapters.find(c => c.id === chapterId);
     const snippet = chapter?.snippets.find(s => s.id === snippetId);
@@ -915,24 +1111,39 @@ export default function App() {
     updateSnippetState(chapterId, snippetId, { status: 'generating', errorMessage: undefined });
 
     try {
-      const { prompt, uniqueSpeakers } = compilePrompt({
+      const { prompt, uniqueSpeakers, targetSnippets } = compilePrompt({
         project,
         activeChapter: chapter,
         snippetsOverride: [snippet]
       });
 
+      const modelId = project.settings.model.id;
       const combinedStyle = getCombinedStyleInstructions(speaker);
-      const { data, mimeType } = await generateTTS(
-        prompt, 
-        speaker.voice, 
-        combinedStyle, 
-        project.settings.model.name,
+      
+      // get raw snippet text counts and number of snippets
+      const snippetCount = targetSnippets.length;
+      const rawText = targetSnippets.map(s => {
+        return s.text.trim();
+      }).join('\n');
+
+      const rawTextChars = rawText.length;
+      const rawTextWords = rawText.split(/\s+/g).length;
+
+      const ttsResult = await generateTTS(
+        prompt,
+        speaker.voice,
+        combinedStyle,
+        modelId,
         {
           speakers: uniqueSpeakers.map(sp => ({ name: sp.name, voice: sp.voice })),
           temperature: project.settings.temperature,
-          useInteractionsAPI: project.settings.apiType === 'Interactions'
+          useInteractionsAPI: project.settings.apiType === 'Interactions',
+          snippetCount: snippetCount,
+          textChars: rawTextChars,
+          textWords: rawTextWords
         }
       );
+      const { data, mimeType } = ttsResult;
 
       const duration = await getAudioDuration(data, mimeType);
       const generationId = generateId();
@@ -945,11 +1156,40 @@ export default function App() {
         snippetId: snippet.id,
         speakerId: speaker.id,
         timestamp: new Date().toISOString(),
-        model: project.settings.model.name,
+        model: modelId,
         text: snippet.text,
         audioMimeType: mimeType,
-        duration: duration
+        duration: duration,
+        temperature: project.settings.temperature ?? 1.0
       };
+
+      // Trigger asynchronous Google Sheets generation telemetry logging if configured
+      if (userPreferences.sheetsLoggingEnabled && userPreferences.sheetsSpreadsheetId) {
+        const snippetIndex = chapter.snippets.findIndex(s => s.id === snippetId);
+        const approxSizeBytes = Math.round((data.length * 3) / 4);
+        const payload = createLogPayloadFromGeneration({
+          status: 200,
+          statusMessage: 'OK',
+          responseTimeMs: ttsResult.responseTime || 0,
+          projectName: project.title,
+          chapterName: chapter.title,
+          speakers: uniqueSpeakers.map(sp => ({ name: sp.name, voice: sp.voice })),
+          model: modelId,
+          temperature: project.settings.temperature ?? 1.0,
+          snippetStart: snippetIndex >= 0 ? snippetIndex : 0,
+          snippetEnd: snippetIndex >= 0 ? snippetIndex : 0,
+          rawText: rawText,
+          promptText: prompt,
+          audioDurationMs: Math.round(duration * 1000),
+          audioSizeBytes: approxSizeBytes,
+          promptTokens: ttsResult.promptTokens,
+          responseTokens: ttsResult.responseTokens
+        });
+
+        logGenerationEvent(payload, userPreferences).catch(err => {
+          console.warn("Async Sheets logging notification:", err);
+        });
+      }
 
       setProject(prev => ({
         ...prev,
@@ -980,16 +1220,36 @@ export default function App() {
     const chapter = project.chapters.find(c => c.id === chapterId);
     if (!chapter) return;
 
-    for (const snippet of chapter.snippets) {
-      if (snippet.generations.length === 0 && snippet.text.trim()) {
-        await handleGenerateSnippetAsync(chapterId, snippet.id);
-      }
+    const snippetsToGen = chapter.snippets.filter(s => s.generations.length === 0 && s.text.trim());
+    if (snippetsToGen.length === 0) return;
+
+    if (project.settings.generationOption === 'individual') {
+      await runRateLimitedBatch(snippetsToGen, sn => handleGenerateSnippetAsync(chapterId, sn.id));
+    } else {
+      const chapterSnippetIds = new Set(snippetsToGen.map(s => s.id));
+      setSelectedSnippetIds(chapterSnippetIds);
+      await handleBulkGenerate();
     }
   };
 
   const handleGenerateAll = async () => {
+    const allItems: { chapterId: string; snippetId: string }[] = [];
     for (const chapter of project.chapters) {
-      await handleGenerateChapter(chapter.id);
+      for (const snippet of chapter.snippets) {
+        if (snippet.generations.length === 0 && snippet.text.trim()) {
+          allItems.push({ chapterId: chapter.id, snippetId: snippet.id });
+        }
+      }
+    }
+
+    if (allItems.length === 0) return;
+
+    if (project.settings.generationOption === 'individual') {
+      await runRateLimitedBatch(allItems, item => handleGenerateSnippetAsync(item.chapterId, item.snippetId));
+    } else {
+      for (const chapter of project.chapters) {
+        await handleGenerateChapter(chapter.id);
+      }
     }
   };
 
@@ -1121,26 +1381,26 @@ export default function App() {
       || (project.settings.generationOption !== 'individual' && selectedSnippetIds.size > 1);
 
     if (!isMultiSpeakerMode) {
-      // Fallback: sequential single-speaker generation
-      const selectedList = Array.from(selectedSnippetIds);
+      // Individual mode rate-limited parallel generation
+      const selectedList = Array.from(selectedSnippetIds) as string[];
+      const itemsToGen: { chapterId: string; snippetId: string }[] = [];
+
       for (const snippetId of selectedList) {
-        let foundChapterId: string | null = null;
         for (const c of project.chapters) {
           if (c.snippets.some(s => s.id === snippetId)) {
-            foundChapterId = c.id;
+            itemsToGen.push({ chapterId: c.id, snippetId });
             break;
           }
         }
-        if (foundChapterId) {
-          await handleGenerateSnippetAsync(foundChapterId, snippetId as string);
-        }
       }
+
+      await runRateLimitedBatch(itemsToGen, item => handleGenerateSnippetAsync(item.chapterId, item.snippetId));
       setSelectedSnippetIds(new Set<string>());
       return;
     }
 
     // Multi-speaker generation!
-    const selectedSnippets = Array.from(selectedSnippetIds)
+    const selectedSnippets = (Array.from(selectedSnippetIds) as string[])
       .map(id => {
         for (const c of project.chapters) {
           const s = c.snippets.find(x => x.id === id);
@@ -1183,23 +1443,70 @@ export default function App() {
         snippetsOverride: selectedSnippets
       });
 
-      const { data, mimeType } = await generateTTS(
+      // 7. Format and interpolate transcript
+      let rawText = "";
+      if (selectedSnippets.length > 0) {
+        rawText = selectedSnippets.map(s => {
+          (s.text || "").trim();
+        }).join('\n');
+      }
+
+      const modelId = project.settings.model.id;
+      const primaryVoice = uniqueSpeakers[0]?.voice || "Puck";
+      const ttsResult = await generateTTS(
         prompt,
-        "",
+        primaryVoice,
         undefined,
-        project.settings.model.id,
+        modelId,
         {
-          speakers: uniqueSpeakers.map(sp => ({ name: sp.name, voice: sp.voice })),
+          speakers: uniqueSpeakers.map(sp => ({ name: sp.name || "Narrator", voice: sp.voice || "Puck" })),
           temperature: project.settings.temperature,
-          useInteractionsAPI: project.settings.apiType === 'Interactions'
+          useInteractionsAPI: project.settings.apiType === 'Interactions',
+          snippetCount: selectedSnippets.length,
+          textChars: rawText.length,
+          textWords: rawText.split(/\s+/g).length
         }
       );
+      const { data, mimeType } = ttsResult;
 
       const duration = await getAudioDuration(data, mimeType);
       const generationId = generateId();
 
       // Save audio data to IndexedDB
       await saveAudio(generationId, data, mimeType, duration);
+
+      // Trigger asynchronous Google Sheets generation telemetry logging if configured
+      if (userPreferences.sheetsLoggingEnabled && userPreferences.sheetsSpreadsheetId) {
+        const snippetIndices = selectedSnippets
+          .map(s => activeChapter.snippets.findIndex(sn => sn.id === s.id))
+          .filter(idx => idx >= 0);
+        const snippetStart = snippetIndices.length > 0 ? Math.min(...snippetIndices) : 0;
+        const snippetEnd = snippetIndices.length > 0 ? Math.max(...snippetIndices) : 0;
+        const approxSizeBytes = Math.round((data.length * 3) / 4);
+
+        const payload = createLogPayloadFromGeneration({
+          status: 200,
+          statusMessage: 'OK',
+          responseTimeMs: ttsResult.responseTime || 0,
+          projectName: project.title,
+          chapterName: activeChapter.title,
+          speakers: uniqueSpeakers.map(sp => ({ name: sp.name, voice: sp.voice })),
+          model: modelId,
+          temperature: project.settings.temperature ?? 1.0,
+          snippetStart,
+          snippetEnd,
+          rawText: rawText,
+          promptText: prompt,
+          audioDurationMs: Math.round(duration * 1000),
+          audioSizeBytes: approxSizeBytes,
+          promptTokens: ttsResult.promptTokens,
+          responseTokens: ttsResult.responseTokens
+        });
+
+        logGenerationEvent(payload, userPreferences).catch(err => {
+          console.warn("Async Sheets logging notification:", err);
+        });
+      }
 
       // Save the multi-speaker generation to each selected snippet
       setProject(prev => {
@@ -1215,10 +1522,11 @@ export default function App() {
                 snippetId: s.id,
                 speakerId: s.speakerId || c.defaultSpeakerId || '',
                 timestamp: new Date().toISOString(),
-                model: project.settings.model.name,
+                model: modelId,
                 text: s.text,
                 audioMimeType: mimeType,
-                duration: duration
+                duration: duration,
+                temperature: project.settings.temperature ?? 1.0
               };
 
               return {
@@ -1337,11 +1645,14 @@ export default function App() {
               <div className="w-px h-4 bg-slate-700 mx-1"></div>
               <button 
                 onClick={handleExportSidecar}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                disabled={isExportingSidecar}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-60 rounded transition-colors"
                 title="Save Audio Sidecar"
               >
-                <Download className="w-4 h-4" />
-                <span className="hidden lg:inline">Audio</span>
+                <Download className={`w-4 h-4 ${isExportingSidecar ? 'animate-bounce text-indigo-400' : ''}`} />
+                <span className="hidden lg:inline">
+                  {isExportingSidecar ? (sidecarExportProgress ? `Exporting (${sidecarExportProgress})` : 'Exporting...') : 'Audio'}
+                </span>
               </button>
             </div>
 
@@ -1401,7 +1712,7 @@ export default function App() {
         </header>
 
         {/* Chapters Scroll Area (Single Active Chapter) */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
           {(() => {
             const activeChapter = project.chapters.find(c => c.id === activeChapterId) || project.chapters[0];
             if (!activeChapter) {
@@ -1423,85 +1734,222 @@ export default function App() {
             const chapterWordCount = activeChapter.snippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0);
             const chapterCharCount = activeChapter.snippets.reduce((acc, s) => acc + s.text.length, 0);
             const chapterTokenEstimate = Math.ceil(chapterCharCount / 4) || 0;
-            const allSnippetsSelected = activeChapter.snippets.every(s => selectedSnippetIds.has(s.id));
+            const allSnippetsSelected = activeChapter.snippets.length > 0 && activeChapter.snippets.every(s => selectedSnippetIds.has(s.id));
+
+            const selectedSnippets = activeChapter.snippets.filter(s => selectedSnippetIds.has(s.id));
+            const isAnySelected = selectedSnippets.length > 0;
+
+            const selCharCount = isAnySelected ? selectedSnippets.reduce((acc, s) => acc + s.text.length, 0) : chapterCharCount;
+            const selWordCount = isAnySelected ? selectedSnippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0) : chapterWordCount;
+
+            const compiledRes = isAnySelected
+              ? compilePrompt({ project, activeChapter, selectedSnippetIds })
+              : compilePrompt({ project, activeChapter });
+
+            const promptCharCount = compiledRes.prompt.length;
+            const promptWordCount = compiledRes.prompt.trim() ? compiledRes.prompt.trim().split(/\s+/).length : 0;
+            const overheadCharCount = promptCharCount - selCharCount;
 
             return (
               <div 
                 key={activeChapter.id} 
-                className="group/chapter bg-slate-900 rounded-xl border border-slate-800 shadow-sm overflow-hidden transition-all flex flex-col"
+                className="group/chapter bg-slate-900 rounded-xl border border-slate-800 shadow-sm transition-all flex flex-col"
               >
-                {/* Chapter Header */}
-                <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3 shrink-0">
-                  <div className="flex items-center gap-3 flex-1 min-w-[300px]">
-                    <input 
-                      type="checkbox" 
-                      checked={allSnippetsSelected}
-                      onChange={() => handleSelectAllSnippets(activeChapter.id)}
-                      className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
-                      title="Select/Deselect All Snippets"
-                    />
-                    <IconButton 
-                      icon={activeChapter.isCollapsed ? ChevronRight : ChevronDown} 
-                      onClick={() => updateChapterState(activeChapter.id, { isCollapsed: !activeChapter.isCollapsed })} 
-                      className="!p-1 text-slate-400 hover:text-slate-200" 
-                      title={activeChapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
-                    />
-                    <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1 shrink-0">
-                      <IconButton icon={ArrowUp} onClick={() => moveChapterState(chapterIndex, 'up')} className="!p-0" disabled={chapterIndex === 0} title="Move Chapter Up" />
-                      <IconButton icon={ArrowDown} onClick={() => moveChapterState(chapterIndex, 'down')} className="!p-0" disabled={chapterIndex === project.chapters.length - 1} title="Move Chapter Down" />
-                    </div>
-                    <input 
-                      type="text" 
-                      value={activeChapter.title}
-                      onChange={(e) => updateChapterState(activeChapter.id, { title: e.target.value })}
-                      className="bg-transparent text-lg font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/3 min-w-[120px] truncate"
-                    />
-                    <div className="flex items-center gap-2 ml-2 text-xs text-slate-500 font-medium">
-                      <span title="Words">{chapterWordCount}W</span>
-                      <span>•</span>
-                      <span title="Characters">{chapterCharCount}C</span>
-                      <span>•</span>
-                      <span title="Tokens">~{chapterTokenEstimate}T</span>
+                {/* Unified Sticky Chapter Header with Dynamic Stats & Selection Controls */}
+                <div className="sticky top-0 z-20 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shrink-0 shadow-md rounded-t-xl">
+                  {/* Top Row: Chapter Information & Chapter Actions */}
+                  <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-[280px]">
+                      <input 
+                        type="checkbox" 
+                        checked={allSnippetsSelected}
+                        onChange={() => handleSelectAllSnippets(activeChapter.id)}
+                        className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
+                        title="Select/Deselect All Snippets"
+                      />
+                      <IconButton 
+                        icon={activeChapter.isCollapsed ? ChevronRight : ChevronDown} 
+                        onClick={() => updateChapterState(activeChapter.id, { isCollapsed: !activeChapter.isCollapsed })} 
+                        className="!p-1 text-slate-400 hover:text-slate-200" 
+                        title={activeChapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
+                      />
+                      <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1 shrink-0">
+                        <IconButton icon={ArrowUp} onClick={() => moveChapterState(chapterIndex, 'up')} className="!p-0" disabled={chapterIndex === 0} title="Move Chapter Up" />
+                        <IconButton icon={ArrowDown} onClick={() => moveChapterState(chapterIndex, 'down')} className="!p-0" disabled={chapterIndex === project.chapters.length - 1} title="Move Chapter Down" />
+                      </div>
+                      <input 
+                        type="text" 
+                        value={activeChapter.title}
+                        onChange={(e) => updateChapterState(activeChapter.id, { title: e.target.value })}
+                        className="bg-transparent text-lg font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 flex-1 min-w-[140px] max-w-sm truncate"
+                      />
+                      
+                      {/* Chapter Default Speaker */}
+                      <div className="flex items-center gap-1.5 ml-2 min-w-[160px]">
+                        <Users className="w-4 h-4 text-slate-500 shrink-0" />
+                        <select 
+                          value={activeChapter.defaultSpeakerId || ''}
+                          onChange={(e) => updateChapterState(activeChapter.id, { defaultSpeakerId: e.target.value || null })}
+                          className="bg-slate-950 border border-slate-700 text-xs rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-300 w-full"
+                        >
+                          <option value="">Default Speaker...</option>
+                          {project.speakers.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Collapse/Expand All Snippets Buttons */}
+                      <div className="flex items-center gap-1 ml-2 opacity-0 group-hover/chapter:opacity-100 transition-opacity shrink-0">
+                        <button 
+                          onClick={() => toggleAllSnippetsInChapter(activeChapter.id, true)}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
+                          title="Collapse All Snippets"
+                        >
+                          <Minimize2 className="w-3 h-3" />
+                        </button>
+                        <button 
+                          onClick={() => toggleAllSnippetsInChapter(activeChapter.id, false)}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
+                          title="Expand All Snippets"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                     
-                    {/* Chapter Default Speaker */}
-                    <div className="flex items-center gap-2 ml-4">
-                      <Users className="w-4 h-4 text-slate-500" />
-                      <select 
-                        value={activeChapter.defaultSpeakerId || ''}
-                        onChange={(e) => updateChapterState(activeChapter.id, { defaultSpeakerId: e.target.value || null })}
-                        className="bg-slate-950 border border-slate-700 text-xs rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-300"
-                      >
-                        <option value="">Default Speaker...</option>
-                        {project.speakers.map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Collapse/Expand All Snippets Buttons */}
-                    <div className="flex items-center gap-1 ml-4 opacity-0 group-hover/chapter:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => toggleAllSnippetsInChapter(activeChapter.id, true)}
-                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
-                        title="Collapse All Snippets"
-                      >
-                        <Minimize2 className="w-3 h-3" />
-                      </button>
-                      <button 
-                        onClick={() => toggleAllSnippetsInChapter(activeChapter.id, false)}
-                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-bold flex items-center gap-1"
-                        title="Expand All Snippets"
-                      >
-                        <Maximize2 className="w-3 h-3" />
-                      </button>
+                    {/* Chapter Action Controls */}
+                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                      <IconButton icon={Wand2} title="Generate Chapter Audio" onClick={() => handleGenerateChapter(activeChapter.id)} className="hover:text-indigo-400" />
+                      <IconButton icon={Play} title="Play Chapter" onClick={() => playFromSnippetById(activeChapter.id, activeChapter.snippets[0]?.id)} />
+                      <IconButton icon={Download} title="Export Concatenated Chapter Audio" onClick={() => handleExportChapterAudio(activeChapter.id)} className="hover:text-emerald-400" />
+                      <IconButton icon={ArrowUp} title="Scroll to Top" onClick={handleScrollToTop} className="hover:text-slate-200" />
+                      <IconButton 
+                        icon={Trash2} 
+                        title="Delete Chapter" 
+                        onClick={() => {
+                          setConfirmModal({
+                            isOpen: true,
+                            title: "Delete Chapter",
+                            message: `Are you sure you want to delete chapter "${activeChapter.title}"? This will permanently delete all associated text snippets and audio generations.`,
+                            confirmLabel: "Delete Chapter",
+                            isDangerous: true,
+                            onConfirm: () => {
+                              deleteChapterState(activeChapter.id);
+                              if (project.chapters.length > 1) {
+                                const nextIdx = chapterIndex === 0 ? 1 : chapterIndex - 1;
+                                setActiveChapterId(project.chapters[nextIdx].id);
+                              } else {
+                                setActiveChapterId(null);
+                              }
+                            }
+                          });
+                        }} 
+                        className="hover:text-red-400" 
+                      />
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 opacity-0 group-hover/chapter:opacity-100 transition-opacity shrink-0">
-                    <IconButton icon={Wand2} title="Generate Chapter Audio" onClick={() => handleGenerateChapter(activeChapter.id)} className="hover:text-indigo-400" />
-                    <IconButton icon={Play} title="Play Chapter" onClick={() => playFromSnippetById(activeChapter.id, activeChapter.snippets[0]?.id)} />
-                    <IconButton icon={Download} title="Export Concatenated Chapter Audio" onClick={() => handleExportChapterAudio(activeChapter.id)} className="hover:text-emerald-400" />
+
+                  {/* Sub-Row: Dynamic Stats Bar & Selection Operations */}
+                  <div className="px-4 py-2 border-t border-slate-800/80 bg-slate-950/60 flex items-center justify-between flex-wrap gap-2.5">
+                    {/* Dynamic Stats Section */}
+                    <div className="flex items-center gap-3 flex-wrap text-xs text-slate-300 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-slate-800 font-mono">
+                      <span className="flex items-center gap-1.5" title="Selected snippets out of chapter total">
+                        <CheckSquare className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span className="text-slate-400 font-sans font-semibold">Selected Snippets</span>
+                        <span className={isAnySelected ? "text-indigo-300 font-bold" : "text-slate-400"}>{selectedSnippets.length}</span>
+                        <span className="text-slate-600">/</span>
+                        <span className="text-slate-400 font-sans font-semibold">Ch. Snippets</span>
+                        <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{activeChapter.snippets.length}</span>
+                      </span>
+
+                      <span className="text-slate-600">•</span>
+
+                      <span className="flex items-center gap-1.5" title="Chars and Words">
+                        <span className="text-slate-400 font-sans font-semibold">Chars</span>
+                        <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{selCharCount}</span>
+                        <span className="text-slate-600">/</span>
+                        <span className="text-slate-400 font-sans font-semibold">Words</span>
+                        <span>{selWordCount}</span>
+                      </span>
+
+                      <span className="text-slate-600">•</span>
+
+                      <span className="flex items-center gap-1.5" title="Prompt Chars and Prompt Words">
+                        <span className="text-indigo-400 font-sans font-semibold">Prompt Chars</span>
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span>{promptCharCount}</span>
+                        <span className="text-slate-600">/</span>
+                        <span className="text-indigo-400 font-sans font-semibold">Prompt Words</span>
+                        <span>{promptWordCount}</span>
+                      </span>
+
+                      <span className="text-slate-600">•</span>
+
+                      <span className="flex items-center gap-1" title="Overhead added by template and character definitions">
+                        <span className="text-amber-400 font-sans font-semibold">Overhead:</span>
+                        <span className="text-amber-300">{overheadCharCount >= 0 ? `+${overheadCharCount}` : overheadCharCount} chars</span>
+                      </span>
+                    </div>
+
+                    {/* Selection Action Controls (when 1+ snippets selected) */}
+                    {isAnySelected && (
+                      <div className="flex items-center gap-2.5 flex-wrap ml-auto">
+                        <button 
+                          onClick={handleClearSelection}
+                          className="text-xs text-slate-400 hover:text-slate-200 underline whitespace-nowrap"
+                        >
+                          Deselect All
+                        </button>
+                        
+                        <div className="w-px h-4 bg-slate-800"></div>
+
+                        {/* Move to Chapter */}
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-slate-400 font-medium whitespace-nowrap">Move:</span>
+                          <select 
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleBulkMoveToChapter(e.target.value);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
+                          >
+                            <option value="">Move to chapter...</option>
+                            {project.chapters.filter(c => c.id !== activeChapter.id).map(c => (
+                              <option key={c.id} value={c.id}>{c.title}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="w-px h-4 bg-slate-800"></div>
+
+                        {/* Generate */}
+                        <button 
+                          onClick={handleBulkGenerate}
+                          disabled={!currentSelectionValidation.valid}
+                          title={currentSelectionValidation.valid ? "Generate" : currentSelectionValidation.reason}
+                          className={`flex items-center gap-1.5 px-3 py-1 text-white rounded text-xs font-semibold transition-colors shadow-md whitespace-nowrap ${
+                            currentSelectionValidation.valid 
+                              ? "bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-indigo-500/20" 
+                              : "bg-slate-700 text-slate-400 cursor-not-allowed opacity-60"
+                          }`}
+                        >
+                          <Wand2 className="w-3.5 h-3.5" /> Generate
+                        </button>
+
+                        {/* Delete */}
+                        <button 
+                          onClick={handleBulkDelete}
+                          className="flex items-center gap-1.5 px-3 py-1 bg-red-600/20 hover:bg-red-500/35 text-red-400 rounded text-xs font-semibold transition-colors border border-red-500/20 whitespace-nowrap"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1524,144 +1972,129 @@ export default function App() {
                 {/* Snippets List */}
                 {!activeChapter.isCollapsed && (
                   <div className="p-4 space-y-4">
-                    {/* Bulk Operations Sticky Ribbon */}
-                    {selectedSnippetIds.size > 0 && (
-                      <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 animate-fade-in shrink-0">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold text-indigo-300">
-                            {selectedSnippetIds.size} snippet{selectedSnippetIds.size > 1 ? 's' : ''} selected
-                          </span>
-                          <button 
-                            onClick={handleClearSelection}
-                            className="text-xs text-slate-400 hover:text-slate-200 underline"
+                    {groupSnippetsByGeneration(activeChapter.snippets).map((group) => {
+                      if (group.isGrouped && group.generation) {
+                        const isGroupPlaying = activePlayingId !== null && (
+                          activePlayingId === group.generation.id || 
+                          group.snippets.some(s => s.id === activePlayingId)
+                        );
+                        const isGroupGenerating = group.snippets.some(s => s.status === 'generating');
+
+                        return (
+                          <GenerationGroupContainer
+                            key={group.id}
+                            group={group}
+                            chapterNumber={chapterIndex + 1}
+                            chapterId={activeChapter.id}
+                            scenes={project.scenes || []}
+                            speakers={project.speakers}
+                            isPlaying={isGroupPlaying}
+                            isGenerating={isGroupGenerating}
+                            onUpdateGenerationName={(genId, newName) => {
+                              handleUpdateGenerationName(activeChapter.id, genId, newName);
+                            }}
+                            onPlay={(gen) => playSnippetAudioById(gen.id)}
+                            onPlayFromHere={(snipId) => playFromSnippetById(activeChapter.id, snipId)}
+                            onStop={handleStopAudio}
+                            onRegenerate={() => {
+                              setSelectedSnippetIds(new Set(group.snippets.map(s => s.id)));
+                              handleBulkGenerate();
+                            }}
+                            onExport={() => handleExportGroupAudio(group.generation!)}
                           >
-                            Deselect All
-                          </button>
+                            {group.snippets.map((snippet) => {
+                              const globalSnippetIndex = activeChapter.snippets.findIndex(s => s.id === snippet.id);
+                              return (
+                                <div 
+                                  key={snippet.id}
+                                  draggable
+                                  onDragStart={(e) => handleSnippetDragStart(e, snippet.id, activeChapter.id)}
+                                  onDragOver={(e) => handleSnippetDragOver(e, snippet.id, activeChapter.id)}
+                                  onDrop={(e) => handleSnippetDrop(e, snippet.id, activeChapter.id)}
+                                >
+                                  <SnippetEditor 
+                                    snippet={snippet}
+                                    chapterId={activeChapter.id}
+                                    index={globalSnippetIndex}
+                                    totalSnippets={activeChapter.snippets.length}
+                                    speakers={project.speakers}
+                                    scenes={project.scenes || []}
+                                    chapterDefaultSpeakerId={activeChapter.defaultSpeakerId}
+                                    isPlaying={activePlayingId !== null && (activePlayingId === snippet.id || activePlayingId === snippet.activeGenerationId)}
+                                    isFocused={focusedSnippetId === snippet.id}
+                                    isSelected={selectedSnippetIds.has(snippet.id)}
+                                    isInsideGroup={true}
+                                    onToggleSelect={() => handleToggleSelectSnippet(snippet.id)}
+                                    onFocus={() => {
+                                      setFocusedSnippetId(snippet.id);
+                                      setFocusedChapterId(activeChapter.id);
+                                    }}
+                                    onUpdate={(updates) => {
+                                      updateSnippetState(activeChapter.id, snippet.id, updates);
+                                    }}
+                                    onDelete={() => deleteSnippetState(activeChapter.id, snippet.id)}
+                                    onMove={(dir) => moveSnippetState(activeChapter.id, globalSnippetIndex, dir)}
+                                    onSplit={(pos) => splitSnippetState(activeChapter.id, snippet.id, pos)}
+                                    onJoinNext={() => joinSnippetWithNextState(activeChapter.id, snippet.id)}
+                                    onAddNext={() => addSnippetState(activeChapter.id, globalSnippetIndex)}
+                                    onGenerate={() => handleGenerateSnippetAsync(activeChapter.id, snippet.id)}
+                                    onPlay={() => playSnippetAudio(snippet)}
+                                    onPlayFromHere={() => playFromSnippetById(activeChapter.id, snippet.id)}
+                                    onStop={handleStopAudio}
+                                    onExport={() => handleExportSnippetAudio(activeChapter.id, snippet.id)}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </GenerationGroupContainer>
+                        );
+                      }
+
+                      // Standalone snippet
+                      const snippet = group.snippets[0];
+                      const globalSnippetIndex = activeChapter.snippets.findIndex(s => s.id === snippet.id);
+                      return (
+                        <div 
+                          key={snippet.id}
+                          draggable
+                          onDragStart={(e) => handleSnippetDragStart(e, snippet.id, activeChapter.id)}
+                          onDragOver={(e) => handleSnippetDragOver(e, snippet.id, activeChapter.id)}
+                          onDrop={(e) => handleSnippetDrop(e, snippet.id, activeChapter.id)}
+                        >
+                          <SnippetEditor 
+                            snippet={snippet}
+                            chapterId={activeChapter.id}
+                            index={globalSnippetIndex}
+                            totalSnippets={activeChapter.snippets.length}
+                            speakers={project.speakers}
+                            scenes={project.scenes || []}
+                            chapterDefaultSpeakerId={activeChapter.defaultSpeakerId}
+                            isPlaying={activePlayingId !== null && (activePlayingId === snippet.id || activePlayingId === snippet.activeGenerationId)}
+                            isFocused={focusedSnippetId === snippet.id}
+                            isSelected={selectedSnippetIds.has(snippet.id)}
+                            isInsideGroup={false}
+                            onToggleSelect={() => handleToggleSelectSnippet(snippet.id)}
+                            onFocus={() => {
+                              setFocusedSnippetId(snippet.id);
+                              setFocusedChapterId(activeChapter.id);
+                            }}
+                            onUpdate={(updates) => {
+                              updateSnippetState(activeChapter.id, snippet.id, updates);
+                            }}
+                            onDelete={() => deleteSnippetState(activeChapter.id, snippet.id)}
+                            onMove={(dir) => moveSnippetState(activeChapter.id, globalSnippetIndex, dir)}
+                            onSplit={(pos) => splitSnippetState(activeChapter.id, snippet.id, pos)}
+                            onJoinNext={() => joinSnippetWithNextState(activeChapter.id, snippet.id)}
+                            onAddNext={() => addSnippetState(activeChapter.id, globalSnippetIndex)}
+                            onGenerate={() => handleGenerateSnippetAsync(activeChapter.id, snippet.id)}
+                            onPlay={() => playSnippetAudio(snippet)}
+                            onPlayFromHere={() => playFromSnippetById(activeChapter.id, snippet.id)}
+                            onStop={handleStopAudio}
+                            onExport={() => handleExportSnippetAudio(activeChapter.id, snippet.id)}
+                          />
                         </div>
-                        
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {/* Bulk Assign Speaker */}
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-slate-400 font-medium">Speaker:</span>
-                            <select 
-                              onChange={(e) => {
-                                handleBulkAssignSpeaker(e.target.value || null);
-                                e.target.value = '';
-                              }}
-                              className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
-                            >
-                              <option value="">Assign Speaker...</option>
-                              {project.speakers.map(s => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Bulk Assign Scene */}
-                          {project.scenes && project.scenes.length > 0 && (
-                            <div className="flex items-center gap-1.5 text-xs">
-                              <span className="text-slate-400 font-medium">Scene:</span>
-                              <select 
-                                onChange={(e) => {
-                                  handleBulkAssignScene(e.target.value || null);
-                                  e.target.value = '';
-                                }}
-                                className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
-                              >
-                                <option value="">Assign Scene...</option>
-                                {project.scenes.map(s => (
-                                  <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          {/* Bulk Move Chapter */}
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-slate-400 font-medium">Move:</span>
-                            <select 
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  handleBulkMoveToChapter(e.target.value);
-                                  e.target.value = '';
-                                }
-                              }}
-                              className="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 focus:outline-none focus:border-indigo-500 text-slate-200"
-                            >
-                              <option value="">Move to chapter...</option>
-                              {project.chapters.filter(c => c.id !== activeChapter.id).map(c => (
-                                <option key={c.id} value={c.id}>{c.title}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="w-px h-5 bg-slate-800 mx-1"></div>
-
-                          {/* Bulk Generate */}
-                          <button 
-                            onClick={handleBulkGenerate}
-                            disabled={!currentSelectionValidation.valid}
-                            title={currentSelectionValidation.valid ? "Generate Selected" : `Generation Disabled: ${currentSelectionValidation.reason}`}
-                            className={`flex items-center gap-1.5 px-3 py-1 text-white rounded text-xs font-semibold transition-colors shadow-md ${
-                              currentSelectionValidation.valid 
-                                ? "bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-indigo-500/20" 
-                                : "bg-slate-700 text-slate-400 cursor-not-allowed opacity-60"
-                            }`}
-                          >
-                            <Wand2 className="w-3.5 h-3.5" /> Generate Selected
-                          </button>
-
-                          {/* Bulk Delete */}
-                          <button 
-                            onClick={handleBulkDelete}
-                            className="flex items-center gap-1.5 px-3 py-1 bg-red-600/20 hover:bg-red-500/35 text-red-400 rounded text-xs font-semibold transition-colors border border-red-500/20"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Delete Selected
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {activeChapter.snippets.map((snippet, snippetIndex) => (
-                      <div 
-                        key={snippet.id}
-                        draggable
-                        onDragStart={(e) => handleSnippetDragStart(e, snippet.id, activeChapter.id)}
-                        onDragOver={(e) => handleSnippetDragOver(e, snippet.id, activeChapter.id)}
-                        onDrop={(e) => handleSnippetDrop(e, snippet.id, activeChapter.id)}
-                      >
-                        <SnippetEditor 
-                          snippet={snippet}
-                          chapterId={activeChapter.id}
-                          index={snippetIndex}
-                          totalSnippets={activeChapter.snippets.length}
-                          speakers={project.speakers}
-                          scenes={project.scenes || []}
-                          chapterDefaultSpeakerId={activeChapter.defaultSpeakerId}
-                          isPlaying={activePlayingId !== null && (activePlayingId === snippet.id || activePlayingId === snippet.activeGenerationId)}
-                          isFocused={focusedSnippetId === snippet.id}
-                          isSelected={selectedSnippetIds.has(snippet.id)}
-                          onToggleSelect={() => handleToggleSelectSnippet(snippet.id)}
-                          onFocus={() => {
-                            setFocusedSnippetId(snippet.id);
-                            setFocusedChapterId(activeChapter.id);
-                          }}
-                          onUpdate={(updates) => {
-                            updateSnippetState(activeChapter.id, snippet.id, updates);
-                          }}
-                          onDelete={() => deleteSnippetState(activeChapter.id, snippet.id)}
-                          onMove={(dir) => moveSnippetState(activeChapter.id, snippetIndex, dir)}
-                          onSplit={(pos) => splitSnippetState(activeChapter.id, snippet.id, pos)}
-                          onJoinNext={() => joinSnippetWithNextState(activeChapter.id, snippet.id)}
-                          onAddNext={() => addSnippetState(activeChapter.id, snippetIndex)}
-                          onGenerate={() => handleGenerateSnippetAsync(activeChapter.id, snippet.id)}
-                          onPlay={() => playSnippetAudio(snippet)}
-                          onPlayFromHere={() => playFromSnippetById(activeChapter.id, snippet.id)}
-                          onStop={handleStopAudio}
-                          onExport={() => handleExportSnippetAudio(activeChapter.id, snippet.id)}
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                     
                     <button 
                       onClick={() => addSnippetState(activeChapter.id, activeChapter.snippets.length - 1)}
@@ -2066,6 +2499,9 @@ export default function App() {
                                       {new Date(gen.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                     </span>
                                     <span className="text-[9px] opacity-65">({(gen.model || 'unknown').replace('-tts', '')})</span>
+                                    {gen.temperature !== undefined && (
+                                      <span className="text-[9px] text-indigo-300/80 bg-indigo-950/60 px-1 rounded border border-indigo-800/40">T: {gen.temperature}</span>
+                                    )}
                                   </div>
                                   <div className="truncate text-[10px] italic opacity-85">"{gen.text}"</div>
                                   <div className="text-[9px] opacity-65">Duration: {formatDuration(gen.duration)}</div>
@@ -2100,7 +2536,6 @@ export default function App() {
                   </section>
                 );
               })()}
-
             </div>
           </div>
         </>
@@ -2127,7 +2562,43 @@ export default function App() {
         activeChapterId={activeChapterId}
         selectedSnippetIds={selectedSnippetIds}
         focusedSnippetId={focusedSnippetId}
+        userPreferences={userPreferences}
+        onUpdatePreferences={setUserPreferences}
       />
+
+      {/* Sidecar Import Progress Indicator */}
+      {sidecarImportProgress && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-lg animate-spin">
+                <RefreshCw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-100 text-lg">Importing Audio Sidecar</h3>
+                <p className="text-xs text-slate-400">Streaming and saving audio data to IndexedDB...</p>
+              </div>
+            </div>
+
+            <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
+              <div 
+                className="bg-indigo-500 h-full transition-all duration-150 rounded-full"
+                style={{ width: `${sidecarImportProgress.percent}%` }}
+              />
+            </div>
+
+            <div className="flex justify-between items-center text-xs font-mono text-slate-400">
+              <span>{sidecarImportProgress.percent}%</span>
+              <span>
+                {(sidecarImportProgress.bytesProcessed / (1024 * 1024)).toFixed(1)} MB / {(sidecarImportProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <span>
+                {sidecarImportProgress.processedCount} generations
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmModal && confirmModal.isOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-100">
@@ -2173,10 +2644,11 @@ interface SnippetEditorProps {
   totalSnippets: number;
   speakers: Speaker[];
   scenes?: Scene[];
-  chapterDefaultSpeakerId: string | null;
+  chapterDefaultSpeakerId?: string | null;
   isPlaying: boolean;
   isFocused: boolean;
   isSelected: boolean;
+  isInsideGroup?: boolean;
   onToggleSelect: () => void;
   onFocus: () => void;
   onUpdate: (updates: Partial<Snippet>) => void;
@@ -2202,6 +2674,7 @@ function SnippetEditor({
   isPlaying,
   isFocused,
   isSelected,
+  isInsideGroup = false,
   onToggleSelect,
   onFocus,
   onUpdate,
@@ -2240,13 +2713,30 @@ function SnippetEditor({
   }, [snippet.text, snippet.isCollapsed, adjustHeight]);
 
   useEffect(() => {
+    const parentEl = textareaRef.current?.parentElement;
+    if (!parentEl) return;
+
+    let rafId: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        adjustHeight();
+      });
+    });
+
+    observer.observe(parentEl);
     window.addEventListener('resize', adjustHeight);
-    return () => window.removeEventListener('resize', adjustHeight);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      observer.disconnect();
+      window.removeEventListener('resize', adjustHeight);
+    };
   }, [adjustHeight]);
 
   const effectiveSpeakerId = snippet.speakerId || chapterDefaultSpeakerId;
   const effectiveSpeaker = speakers.find(s => s.id === effectiveSpeakerId);
-  const hasAudio = !!snippet.activeGenerationId;
+  const hasAudio = !isInsideGroup && !!(snippet.activeGenerationId && snippet.generations.some(g => g.id === snippet.activeGenerationId));
   const isGenerating = snippet.status === 'generating';
 
   const wordCount = snippet.text.trim() ? snippet.text.trim().split(/\s+/).length : 0;
@@ -2284,6 +2774,9 @@ function SnippetEditor({
           className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
           title="Select Snippet"
         />
+        <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-1 py-0.5 rounded shrink-0">
+          {index + 1}/{totalSnippets}
+        </span>
         <IconButton icon={ChevronRight} onClick={(e: any) => { e.stopPropagation(); onUpdate({ isCollapsed: false }); }} className="!p-0.5 text-slate-500" title="Expand Snippet" />
         
         <div 
@@ -2305,19 +2798,22 @@ function SnippetEditor({
         </div>
 
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          {isGenerating ? (
-            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin-slow" />
-          ) : (
-            <>
-              {isPlaying ? (
-                <IconButton icon={Square} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onStop(); }} className="text-red-400 hover:text-red-300" title="Stop" />
-              ) : (
-                <IconButton icon={Play} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onPlay(); }} disabled={!hasAudio} className={hasAudio ? "text-emerald-400 hover:text-emerald-300" : ""} title="Play" />
-              )}
-              <IconButton icon={Download} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onExport(); }} disabled={!hasAudio} className={hasAudio ? "text-blue-400 hover:text-blue-300" : ""} title="Export" />
-              <IconButton icon={hasAudio ? RefreshCw : Wand2} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} className="text-indigo-400 hover:text-indigo-300" title={hasAudio ? "Regenerate Audio" : "Generate Audio"} />
-            </>
+          {!isInsideGroup && (
+            isGenerating ? (
+              <Loader2 className="w-4 h-4 text-indigo-400 animate-spin-slow" />
+            ) : (
+              <>
+                {isPlaying ? (
+                  <IconButton icon={Square} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onStop(); }} className="text-red-400 hover:text-red-300" title="Stop" />
+                ) : (
+                  <IconButton icon={Play} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onPlay(); }} disabled={!hasAudio} className={hasAudio ? "text-emerald-400 hover:text-emerald-300" : ""} title="Play" />
+                )}
+                <IconButton icon={Download} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onExport(); }} disabled={!hasAudio} className={hasAudio ? "text-blue-400 hover:text-blue-300" : ""} title="Export" />
+                <IconButton icon={hasAudio ? RefreshCw : Wand2} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} className="text-indigo-400 hover:text-indigo-300" title={hasAudio ? "Regenerate Audio" : "Generate Audio"} />
+              </>
+            )
           )}
+          <IconButton icon={Plus} title="Add snippet below" onClick={(e: any) => { e.stopPropagation(); onAddNext(); }} className="hover:text-indigo-400" />
           <div className="w-px h-4 bg-slate-800 mx-1"></div>
           <IconButton icon={Trash2} onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="hover:text-red-400" title="Delete snippet" />
         </div>
@@ -2359,12 +2855,16 @@ function SnippetEditor({
         
         {/* Toolbar */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded shrink-0">
+              {index + 1}/{totalSnippets}
+            </span>
+
             <select 
               value={snippet.speakerId || ''}
               style={effectiveSpeakerId ? speakerStyles.customControlStyle : {}}
               onChange={(e) => onUpdate({ speakerId: e.target.value || null })}
-              className={`text-xs rounded px-2 py-1 focus:outline-none border ${snippet.speakerId ? 'text-indigo-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+              className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-[200px] ${snippet.speakerId ? 'text-indigo-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
             >
               <option value="">Inherit ({speakers.find(s => s.id === chapterDefaultSpeakerId)?.name || 'None'})</option>
               {speakers.map(s => (
@@ -2377,7 +2877,7 @@ function SnippetEditor({
               <select 
                 value={snippet.sceneId || ''}
                 onChange={(e) => onUpdate({ sceneId: e.target.value || undefined })}
-                className={`text-xs rounded px-2 py-1 focus:outline-none border ${snippet.sceneId ? 'bg-teal-950 text-teal-300 border-teal-800' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+                className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-[180px] ${snippet.sceneId ? 'bg-teal-950 text-teal-300 border-teal-800' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
               >
                 <option value="">No Scene</option>
                 {scenes.map(s => (
@@ -2385,24 +2885,16 @@ function SnippetEditor({
                 ))}
               </select>
             )}
-            
-            {effectiveSpeaker && (
-              <span 
-                style={speakerStyles.customControlStyle}
-                className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border"
-              >
-                {effectiveSpeaker.voice}
-              </span>
-            )}
           </div>
 
-          <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <span className="text-[10px] text-slate-500 font-medium tracking-wider">
               W: {wordCount} | C: {charCount} | T: ~{tokenEstimate}
             </span>
             <div className="w-px h-4 bg-slate-800"></div>
             <IconButton icon={SplitSquareVertical} title="Split at cursor" onClick={handleSplit} />
             <IconButton icon={Merge} title="Join with next" onClick={onJoinNext} disabled={index === totalSnippets - 1} />
+            <IconButton icon={Plus} title="Add snippet below" onClick={onAddNext} className="hover:text-indigo-400" />
             <div className="w-px h-4 bg-slate-800 mx-1"></div>
             <IconButton icon={Trash2} title="Delete snippet" onClick={onDelete} className="hover:text-red-400" />
           </div>
@@ -2413,6 +2905,7 @@ function SnippetEditor({
           ref={textareaRef}
           value={snippet.text}
           onChange={(e) => onUpdate({ text: e.target.value })}
+          onBlur={() => onUpdate({ text: snippet.text.trim() })}
           onFocus={onFocus}
           disabled={isPlaying || isGenerating}
           placeholder="Enter text here..."
@@ -2431,75 +2924,74 @@ function SnippetEditor({
           </div>
         )}
 
-        {/* Bottom Actions */}
-        <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Play Button */}
-            <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); isPlaying ? onStop() : onPlay(); }} 
-              disabled={!hasAudio && !isPlaying}
-              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
-                isPlaying 
-                  ? 'text-red-400 hover:text-red-300 bg-red-400/10' 
-                  : hasAudio 
+        {/* Bottom Actions - Hidden when inside a Generation Group Container */}
+        {!isInsideGroup && (
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Play Button */}
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); isPlaying ? onStop() : onPlay(); }} 
+                disabled={!hasAudio && !isPlaying}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                  isPlaying 
+                    ? 'text-red-400 hover:text-red-300 bg-red-400/10' 
+                    : hasAudio 
+                      ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-400/10' 
+                      : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+                }`}
+              >
+                {isPlaying ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                {isPlaying ? 'Stop' : 'Play'}
+              </button>
+
+              {/* Play From Here Button */}
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPlayFromHere(); }} 
+                disabled={!hasAudio}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                  hasAudio 
                     ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-400/10' 
                     : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
-              }`}
-            >
-              {isPlaying ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
-              {isPlaying ? 'Stop' : 'Play'}
-            </button>
+                }`}
+                title="Play from here"
+              >
+                <ArrowDownToLine className="w-3 h-3" /> Play From Here
+              </button>
 
-            {/* Play From Here Button */}
-            <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPlayFromHere(); }} 
-              disabled={!hasAudio}
-              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
-                hasAudio 
-                  ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-400/10' 
-                  : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
-              }`}
-              title="Play from here"
-            >
-              <ArrowDownToLine className="w-3 h-3" /> Play From Here
-            </button>
+              {/* Generate / Regenerate Button */}
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} 
+                disabled={isGenerating}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                  isGenerating
+                    ? 'text-indigo-400 bg-indigo-400/10 cursor-not-allowed'
+                    : hasAudio
+                      ? 'text-slate-400 hover:text-indigo-300 bg-slate-800 hover:bg-indigo-500/20'
+                      : 'text-indigo-400 hover:text-indigo-300 bg-indigo-400/10'
+                }`}
+              >
+                {isGenerating ? <Loader2 className="w-3 h-3 animate-spin-slow" /> : (hasAudio ? <RefreshCw className="w-3 h-3" /> : <Wand2 className="w-3 h-3" />)}
+                {isGenerating ? 'Generating...' : (hasAudio ? 'Regenerate' : 'Generate Audio')}
+              </button>
 
-            {/* Generate / Regenerate Button */}
-            <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onGenerate(); }} 
-              disabled={isGenerating}
-              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
-                isGenerating
-                  ? 'text-indigo-400 bg-indigo-400/10 cursor-not-allowed'
-                  : hasAudio
-                    ? 'text-slate-400 hover:text-indigo-300 bg-slate-800 hover:bg-indigo-500/20'
-                    : 'text-indigo-400 hover:text-indigo-300 bg-indigo-400/10'
-              }`}
-            >
-              {isGenerating ? <Loader2 className="w-3 h-3 animate-spin-slow" /> : (hasAudio ? <RefreshCw className="w-3 h-3" /> : <Wand2 className="w-3 h-3" />)}
-              {isGenerating ? 'Generating...' : (hasAudio ? 'Regenerate' : 'Generate Audio')}
-            </button>
-
-            {/* Export Button */}
-            <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onExport(); }} 
-              disabled={!hasAudio}
-              className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
-                hasAudio 
-                  ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' 
-                  : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
-              }`}
-              title="Export Audio"
-            >
-              <Download className="w-3 h-3" /> Export
-            </button>
+              {/* Export Button */}
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onExport(); }} 
+                disabled={!hasAudio}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded transition-colors ${
+                  hasAudio 
+                    ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' 
+                    : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+                }`}
+                title="Export Audio"
+              >
+                <Download className="w-3 h-3" /> Export
+              </button>
+            </div>
           </div>
-          
-          <button onClick={onAddNext} className="text-xs text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-            <Plus className="w-3 h-3" /> Add below
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );
 }
+
