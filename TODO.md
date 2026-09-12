@@ -9,13 +9,15 @@
 - [o] TBD
 
 ## **DO NOW**
-- [ ] Add statusbar (top or bottom, either way) to view [METRICS](#metrics)
-  - [ ] LOG TO GOOGLE SHEETS
+- [ ] Test snippet selection
+- [x] Add and test the new ["Interactions"][geminiTTS] API
+  - [x] Did that, it DOESN'T EVEN RECOGNIZE TTS MODELS, FUCK!
+- [ ] Add statusbar (top or bottom, either way) to view selected chaaracters / tokens to stay under 8KB limit as well as total request data: # requests, # chars, words, tokens, audio size, duration, etc. per day. This will be read from a daily JSONL log which will write one entry per request with all the above fields. **Collect now, query later.**
 - [ ] Change markdown importing style to handle scenes, further promp notes, perhaps just using a Key: Value style under each chapter, speaker, scene, etc.
-- [ ] or instead of that... GOOGLE DOCS ALREADY
-  - [ ] probably make sure markdown goes through a pass to remove backslashes and replace double & single quotes with normal ASCII 
-- [x] Test snippet selection
-- [Z] BIG CRAP FAILURE. Add and test the new ["Interactions"][geminiTTS] API
+  - [ ] Run a cleaning pass on exported markdown because Docs is fucking *STUPID* how it exports markdown. it must miss a step in the chain of format shifts in and out of json and base64 and whatever other shit it passes through, because it ends up with *every* bit of punctuation escaped with a backslash. Thanks for nothing google.
+  - [ ] `[\x{201C}\x{201D}]` for *FaNcY* double quotes
+  - [ ] `[\x{2018}\x{2019}]` for *FaNcY* single quotes
+  - [ ] `\\` for every backslash, as there's no legitimate need for them in any document that I can think of
 - [x] Implement multi-speaker API calls (but to use single-speaker you have to switch and shit, fukken annoyin')
   - [x] Fix prompt template, integrating
   - [/] Test generation of multiple snippets (same instructions and text) combined, ~500b, ~2kb, 4kb, 6kb, both in sequence and using the multi-speaker request config
@@ -106,12 +108,12 @@
 ## Audio Export
 - [x] Full-chapter and project audio export
 - [ ] Export audio encoding, primarily M4B/AAC, with...
-   - [ ] M4B
-   - [ ] M4A
-   - [ ] MP3
-   - [ ] FLAC
-   - [ ] OGG Opus and/or Vorbis
-   - [ ] Perhaps two separate settings: container and codec, which each have an array of which codecs/containers they can use to validate compatibility before generating.
+  - [ ] M4B
+  - [ ] M4A
+  - [ ] MP3
+  - [ ] FLAC
+  - [ ] OGG Opus and/or Vorbis
+  - [ ] Perhaps two separate settings: container and codec, which each have an array of which codecs/containers they can use to validate compatibility before generating.
 - [ ] Look into what format ACX expects and implement
 - [ ] Support uploading cover artwork to embed in the audio file metadata
 - [ ] For M4B, M4A, MP3, Opus, and whichever other containers support it: timestamped text inserted from the project into container metadata as synchronized lyrics, using whatever format
