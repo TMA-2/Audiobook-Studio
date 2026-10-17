@@ -1,0 +1,43 @@
+[
+  { // Launch server and then frontend in a single debug session????
+    "label": "Debug Server and Frontend",
+    "type": "node-terminal",
+    "request": "launch",
+    "terminal": "integrated",
+    "autoStartBrowser": true,
+    "webRoot": "${ZED_WORKTREE_ROOT}",
+    "adapter": "JavaScript",
+  },
+  {
+    "label": "Debug Server (Node)",
+    "adapter": "JavaScript",
+    "request": "launch",
+    "envFile": ".env",
+    "runtimeExecutable": "node",
+    "runtimeArgs": [
+      "--import",
+      "tsx"
+    ],
+    "program": "$ZED_WORKTREE_ROOT/server.ts",
+    "type": "pwa-node",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "console": "integratedTerminal"
+  },
+  {
+    "label": "Debug Frontend (Edge)",
+    "adapter": "JavaScript",
+    "request": "launch",
+    "type": "pwa-msedge",
+    "url": "http://localhost:3000",
+    "webRoot": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    // attach to arbitrary edge browser instance after the pwa-node debugger has launched
+    "label": "Debug Attach (pwa-Edge)",
+    "adapter": "JavaScript",
+    "request": "attach",
+    "type": "pwa-edge",
+    "webRoot": "$ZED_WORKTREE_ROOT",
+    "port": 9229
+  }
+]

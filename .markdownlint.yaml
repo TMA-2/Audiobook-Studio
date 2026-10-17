@@ -1,19 +1,28 @@
-MD005:
+MD004:                # ul-style
   severity: warning
-MD012:
+MD005:                # list-indent
+  severity: warning
+MD007:                # ul-indent
+  indent: 2
+  severity: warning
+MD009:                # no-trailing-spaces
+  code_blocks: true
+  list_item_empty_lines: false
+  strict: true
+MD012:                # no-multiple-blanks
   maximum: 2
   severity: warning
-MD013:
-  line_length: 240
+MD013:                # line-length
+  line_length: 320
   heading_line_length: 120
   code_blocks: false
   tables: false
-MD022:
+MD022:                # blanks-around-headings
   lines_above: 1
   lines_below: 0
-MD031: false
-MD032: false
-MD033: true
-MD036: false
-MD051:
+MD031: false          # blanks-around-fences
+MD032: false          # blanks-around-lists
+MD033: true           # no-inline-html
+MD036: false          # no-emphasis-as-heading
+MD051:                # link-fragments
   ignore_case: true

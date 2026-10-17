@@ -1,9 +1,31 @@
+# Git ignore file for Audiobook Studio
 Archived/
 node_modules/
 build/
 dist/
 coverage/
-.DS_Store
+assets/vertexairunner*.json
+logs/
 *.log
+.agents/
+.DS_Store
+GEMINI.md
+.zed/*
+!.zed/debug.json
+!.zed/tasks.json
+
+NOTES/ZED_AGENT_HISTORY.md
+NOTES/GitHubCopilot_Thread_History.md
+
+# secrets
+.gcp-key.json
+firebase-applet-config.json
 .env*
 !.env.example
+
+# lock files
+*.lock
+*-lock.json
+
+# Impeccable
+PRODUCT.md

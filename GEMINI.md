@@ -1,11 +1,8 @@
----
-trigger: always_on
----
-# Gemini Agent Instructions
+# AudioBook Studio Instructions
 
 ## Design Skill
 
-> Refer to [impeccable skill](.gemini/skills/impeccable/SKILL.md) for design patterns.
+> Refer to [impeccable skill](/.agents/skills/impeccable/SKILL.md) for design patterns.
 
 ## Code Preferences
 
@@ -18,7 +15,7 @@ trigger: always_on
 
 ## General
 
-> Refer to [unslop skill](.gemini/skills/unslop/SKILL.md) for output patterns, grammar, etc.
+> Refer to [unslop skill](/.agents/skills/unslop/SKILL.md) for output patterns, grammar, etc.
 
 - Don't over-engineer.
 - Don't over-engineer.
@@ -38,15 +35,15 @@ trigger: always_on
   a. it's outlined in `./NOTES/<start_version>-x.x.x-<PLAN_NAME>.md` where `<start_version>` is the current version, `x.x.x` is the version when finished to fill in later. This is so we have a persistent context window between us (plus the changelog) without having to rely on either of our volatile working memories.
 4. Respond with the plan outline and I'll either give the go-ahead for each step, or modify it, or ask questions, or whatever and re-convene until we have a definite action item.
 5. *FIRST* write a test for what will be added (TDD): given feature X, what shape does its input Y take, and what is the expected output Z? This will surely involve mocking API endpoints and user interactions and whatnot. I *imagine* this should be easy given server.ts, but I could be wrong.
-  - Aside: This is something I'd like to start following with PowerShell and Pester, so interacting with it here will be a big help, not to mention a more quantitative verification method that everything *works* programatically, not just linting and compiling.
+   - Aside: This is something I'd like to start following with PowerShell and Pester, so interacting with it here will be a big help, not to mention a more quantitative verification method that everything *works* programatically, not just linting and compiling.
 6. When the test is written, it *must* fail first -- this is important to prevent false positives later.
 7. Do the thing and make the test go brrrrrrrrrr
 8. As each discrete step is implemented and the test passes, mark it as complete in the plan and update that section of the plan document with the date and new version. The plan documents should be the **source of truth**, with the changelog and anything else downstream.
 9. Update [**CHANGELOG.md**](#changelog-style) with the above information under add, remove, change, fix, deprecate, security, using [KeepAChangeLog style](https://keepachangelog.com).
-  a. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. We'll stay in major version 0 for a while, so don't increment it until it's stable enough for someone other than myself to use it. Bump minor version with each new feature committed, and patch version with each bug fix.
-  b. Update **package.json** and anything else relevant (like dependencies) when the version is bumped.
-9. Return to **#5** and loop until the plan is finished (or something goes terribly wrong and we need to revert to a checkpoint and re-plan)
-10. When the plan is fully complete, rename the plan file like so: `<start_version>-<end_version>-PLAN_NAME.md`
+   1. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. We'll stay in major version 0 for a while, so don't increment it until it's stable enough for someone other than myself to use it. Bump minor version with each new feature committed, and patch version with each bug fix.
+   2. Update **package.json** and anything else relevant (like dependencies) when the version is bumped.
+10. Return to **#5** and loop until the plan is finished (or something goes terribly wrong and we need to revert to a checkpoint and re-plan)
+11. When the plan is fully complete, rename the plan file like so: `<start_version>-<end_version>-PLAN_NAME.md`
 
 ### Bug fixes and corrections
 
