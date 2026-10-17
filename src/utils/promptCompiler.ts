@@ -28,9 +28,7 @@ export function compilePrompt(options: CompilePromptOptions): {
 ### {speaker_name}
 - Role: {speaker_role}
 - Voice: {speaker_voice}
-
-#### Style
-{speaker_instructions}
+- Style: {speaker_instructions}
 
 ## Scene Context: {scene_name}
 {scene_context}

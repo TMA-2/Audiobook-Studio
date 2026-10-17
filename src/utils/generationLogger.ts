@@ -13,8 +13,10 @@ export interface CreateLogPayloadOptions {
   temperature: number;
   snippetStart: number;
   snippetEnd: number;
-  rawText: string;
-  promptText: string;
+  rawTextCharCount: number;
+  rawTextWordCount: number;
+  promptTextCharCount: number;
+  promptTextWordCount: number;
   promptTokens?: number;
   responseTokens?: number;
   audioDurationMs?: number;
@@ -33,14 +35,11 @@ export function createLogPayloadFromGeneration(options: CreateLogPayloadOptions)
   const speaker2 = options.speakers[1]?.name || 'n/a';
   const voice2 = options.speakers[1]?.voice || 'n/a';
 
-  const rawTextClean = (options.rawText || '').trim();
-  const promptTextClean = (options.promptText || '').trim();
+  const textChars = options.rawTextCharCount;
+  const textWords = options.rawTextWordCount;
 
-  const textChars = rawTextClean.length;
-  const textWords = rawTextClean ? rawTextClean.split(/\s+/g).length : 0;
-
-  const promptChars = promptTextClean.length;
-  const promptWords = promptTextClean ? promptTextClean.split(/\s+/g).length : 0;
+  const promptChars = options.promptTextCharCount;
+  const promptWords = options.promptTextWordCount;
 
   return {
     timestamp: Date.now(),

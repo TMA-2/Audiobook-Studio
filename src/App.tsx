@@ -61,25 +61,57 @@ import { createLogPayloadFromGeneration, logGenerationEvent } from './utils/gene
 // --- Constants ---
 const defaultEncoding: AudioEncoding = 'M4A';
 const INITIAL_PROJECT: Project = {
-  title: 'Untitled Audiobook',
+  title: "Big Tiddy Goth Lesbians",
   settings: {
     model: GEMINI_MODELS[0],
+    temperature: 1.0,
     encoding: defaultEncoding,
     sampleRate: '24000'
   },
   speakers: [
     {
-      id: generateId(),
+      id: "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
       order: 0,
-      name: 'Narrator',
-      voice: 'Zephyr',
-      style: 'Clear, steady pace appropriate for a romance audiobook.',
+      name: "Evangeline",
+      voice: "Pulcherrima",
+      style:
+        "You're a Big Tiddy Goth/Punk Lesbian (actually, your tiddy is average) and you're seen as a delinquent at school, especially by Catty Mean Girl Prep Tiffani who gives you grief at school, while she's secretly crushing on you. However, you practice 'radical ownership' and are able to defuse most of her comments by 'yes, and'-ing them, turning them back on her by becoming extremely flirtatious and forward while invading her physical space, causing her to retreat or go on the defensive, blushing and stammering. You are \"a bit\" of a tease (actually you're kind of sadistic), and you enjoy making her squirm... in multiple ways. You are confident, assertive, and unapologetically yourself. You have a dark sense of humor and a sharp wit, which you'll use to your advantage along with the aforementioned aspects to capture Tiffani's heart. Your voice is 100% mid-2000s goth/alt-girl depiction. Think Angelina Jolie in Hackers or Neve Campbell in Wild Things but with more leather jackets and ripped stockings and NO Matt Dillon.",
+      role: "Big tiddy goth/punk lesbian",
+      model: {
+        name: "gemini-2.5-flash-tts",
+        id: "gemini-3.1-flash-tts-preview",
+        description: "Gemini 3.1 Flash TTS Preview",
+      },
       isNarrator: true
-    }
+    },
+    {
+      id: "01a0b1f3-5998-7313-8cff-72836b7524e7",
+      order: 1,
+      name: "Tiffani",
+      voice: "Autonoe",
+      style:
+        "You're a Catty Mean Girl Prep, the queen bee, and also somewhat closeted lesbian. Your natural enemy (and secret crush) is Evangeline the Big Tiddy Goth/Punk Lesbian. You always try to bully her at school, almost always turning into a self-own as soon as she deflects it and flashes her big beautiful smile at you and gets very close, causing you to blush and stammer. You are a bit of a flirt, but you don't know how to handle it when Evangeline turns the tables on you and starts teasing you back, making you squirm and blush even more. You have a sharp tongue and a quick wit, but you're also insecure and unsure of how to express your feelings for Evangeline. Your voice is 100% 90s or mid-2000s preppy girl. Think Alicia Silverstone in Clueless or Denise Richards in Wild Things if you were less of a murderous piece of shit, and in love with Neve Campbell's character. Your warlots of short tartan skirts, argyle sweater-vests, kneesocks, white blouses, and ponytails.",
+      role: "Catty Mean Girl Prep",
+      model: {
+        name: "gemini-2.5-flash-tts",
+        id: "gemini-3.1-flash-tts-preview",
+        description: "Gemini 3.1 Flash TTS Preview",
+      },
+      isNarrator: true,
+    },
+  ],
+  scenes: [
+    {
+      id: "01a0adab-02b0-7292-8727-da86dc535627",
+      name: "A Gothic Mansion",
+      order: 0,
+      description:
+        "Imagine a grand, old mansion perched atop a hill, shrouded in mist. The architecture is ornate, with towering spires and intricate stonework. The windows are tall and arched, some cracked and weathered by time. The front door is massive, made of dark wood with iron accents, slightly ajar as if inviting the brave to enter. The surrounding grounds are overgrown with wild ivy and twisted trees, their branches reaching out like skeletal fingers. A faint light flickers from within, casting eerie shadows that dance across the foggy landscape. The air is thick with the scent of damp earth and the distant sound of thunder echoes through the night.\nInside, a 'bad girl' goth lesbian and her preppy cheerleader classmate have been sent on a dare to explore it. The goth is less bothered by the surroundings and takes every opportunity to tease and flirt with the cheerleader, who is visibly nervous and on edge. The tension between them is palpable, with the goth's dark allure contrasting sharply against the cheerleader's bright and anxious demeanor. As they navigate the creaking hallways and shadowy corners, their interactions are charged with a mix of fear, excitement, and thick, sweaty sexual chemistry. Suddenly, they come across the master bedroom...",
+    },
   ],
   chapters: [
     {
-      id: generateId(),
+      id: "c1d2e3f4-5678-90ab-cdef-1234567890ab",
       order: 0,
       title: 'Chapter 1',
       defaultSpeakerId: null,
@@ -89,7 +121,8 @@ const INITIAL_PROJECT: Project = {
           id: generateId(),
           order: 0,
           text: 'It was a dark and stormy night.',
-          speakerId: null,
+          speakerId: "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+          sceneId: "01a0adab-02b0-7292-8727-da86dc535627",
           status: 'idle',
           isCollapsed: false,
           generations: [],
@@ -97,7 +130,7 @@ const INITIAL_PROJECT: Project = {
         }
       ]
     }
-  ]
+  ],
 };
 
 //#region Global Helper Components
@@ -610,6 +643,13 @@ export default function App() {
     playNext();
   }, [project, handleStopAudio]);
 
+  // Keep the currently playing snippet/group in view as sequential playback advances.
+  useEffect(() => {
+    if (!activePlayingId) return;
+    const target = scrollContainerRef.current?.querySelector(`[data-playback-target~="${activePlayingId}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [activePlayingId]);
+
   const handleUpdateGenerationName = useCallback((chapterId: string, generationId: string, newName: string) => {
     setProject(prev => ({
       ...prev,
@@ -958,29 +998,43 @@ export default function App() {
     }
   }, []);
 
-  const handlePreviewVoice = useCallback(async (speaker: Speaker) => {
-    handleStopAudio();
-    setPreviewingSpeakerId(speaker.id);
-    try {
-      const previewText = `Hello! My name's ${speaker.voice} and I'll be playing the role of ${speaker.name}. The hungry purple dinosaur ate the kind, zingy fox, the jabbering crab, and the mad whale and started vending and quacking.`;
-      const combinedStyle = getCombinedStyleInstructions(speaker);
-      const { data, mimeType } = await generateTTS(
-        previewText,
-        speaker.voice,
-        combinedStyle,
-        project.settings.model.id,
-        {
-          textChars: previewText.length,
-          textWords: previewText.split(/\s+/g).length
-        }
-      );
-      playAudio(data, mimeType, () => setPreviewingSpeakerId(null));
-    } catch (err: any) {
-      console.error("Failed to preview voice:", err);
-      alert("Failed to preview voice: " + (err.message || String(err)));
-      setPreviewingSpeakerId(null);
-    }
-  }, [handleStopAudio, project.settings.model]);
+  const handlePreviewVoice = useCallback(
+    async (speaker: Speaker) => {
+      handleStopAudio();
+      setPreviewingSpeakerId(speaker.id);
+      try {
+        // phonetic pangrams work well as sample text
+        // The hungry purple dinosaur ate the kind, zingy fox, the jabbering crab, and the mad whale and started vending and quacking.`;
+        // The beige hue on the waters of the loch impressed all, including the French queen, before she heard that symphony again, just as young Arthur wanted.
+        var sampleText = {
+          pangram1:
+            "[imposing] The hungry purple dinosaur ate [sarcastic] the kind, zingy fox, [laughing] the jabbering crab, [angry] and the mad whale [sultry] and started vending and quacking.",
+          pangram2:
+            "[sadly] The beige hue on the waters of the loch impressed all... [sultry] including the French queen, [imposing] before she heard that symphony again, [laughing] just as young Arthur wanted.",
+          patrickBateman:
+            "There are no more barriers to cross. All I have in common with the uncontrollable and the insane, the vicious and the evil, all the mayhem I have caused and my utter indifference toward it, I have now surpassed. My pain is constant and sharp and I do not hope for a better world for anyone. In fact, I want my pain to be inflicted on others. I want no one to escape. But even after admitting this, there is no catharsis. My punishment continues to elude me and I gain no deeper knowledge of myself. No new knowledge can be extracted from my telling. This confession has meant nothing.",
+        };
+        const previewText = `Hello! My name's ${speaker.voice} and I'll be playing the role of ${speaker.name}. ${sampleText.pangram2}`;
+        const combinedStyle = getCombinedStyleInstructions(speaker);
+        const { data, mimeType } = await generateTTS(
+          previewText,
+          speaker.voice,
+          combinedStyle,
+          project.settings.model.id,
+          {
+            textCharCount: previewText.length,
+            textWordCount: previewText.split(/\s+/g).length,
+          },
+        );
+        playAudio(data, mimeType, () => setPreviewingSpeakerId(null));
+      } catch (err: any) {
+        console.error("Failed to preview voice:", err);
+        alert("Failed to preview voice: " + (err.message || String(err)));
+        setPreviewingSpeakerId(null);
+      }
+    },
+    [handleStopAudio, project.settings.model],
+  );
   //#endregion
 
   //#region Drag and Drop Handlers
@@ -1124,10 +1178,10 @@ export default function App() {
       const snippetCount = targetSnippets.length;
       const rawText = targetSnippets.map(s => {
         return s.text.trim();
-      }).join('\n');
+      }).join("\n");
 
-      const rawTextChars = rawText.length;
-      const rawTextWords = rawText.split(/\s+/g).length;
+      const rawCharCount = rawText.length;
+      const rawWordCount = rawText.split(/\s+/g).length;
 
       const ttsResult = await generateTTS(
         prompt,
@@ -1139,8 +1193,8 @@ export default function App() {
           temperature: project.settings.temperature,
           useInteractionsAPI: project.settings.apiType === 'Interactions',
           snippetCount: snippetCount,
-          textChars: rawTextChars,
-          textWords: rawTextWords
+          textCharCount: rawCharCount,
+          textWordCount: rawWordCount
         }
       );
       const { data, mimeType } = ttsResult;
@@ -1176,10 +1230,12 @@ export default function App() {
           speakers: uniqueSpeakers.map(sp => ({ name: sp.name, voice: sp.voice })),
           model: modelId,
           temperature: project.settings.temperature ?? 1.0,
-          snippetStart: snippetIndex >= 0 ? snippetIndex : 0,
-          snippetEnd: snippetIndex >= 0 ? snippetIndex : 0,
-          rawText: rawText,
-          promptText: prompt,
+          snippetStart: snippetIndex >= 0 ? snippetIndex + 1 : 0,
+          snippetEnd: snippetIndex >= 0 ? snippetIndex + 1 : 0,
+          rawTextCharCount: rawCharCount,
+          rawTextWordCount: rawWordCount,
+          promptTextCharCount: prompt.trim().length,
+          promptTextWordCount: prompt.split(/\s+/g).length,
           audioDurationMs: Math.round(duration * 1000),
           audioSizeBytes: approxSizeBytes,
           promptTokens: ttsResult.promptTokens,
@@ -1451,22 +1507,19 @@ export default function App() {
         }).join('\n');
       }
 
+      const textChars = rawText.length;
+      const textWords = rawText.split(/\s+/g).length;
+
       const modelId = project.settings.model.id;
       const primaryVoice = uniqueSpeakers[0]?.voice || "Puck";
-      const ttsResult = await generateTTS(
-        prompt,
-        primaryVoice,
-        undefined,
-        modelId,
-        {
-          speakers: uniqueSpeakers.map(sp => ({ name: sp.name || "Narrator", voice: sp.voice || "Puck" })),
-          temperature: project.settings.temperature,
-          useInteractionsAPI: project.settings.apiType === 'Interactions',
-          snippetCount: selectedSnippets.length,
-          textChars: rawText.length,
-          textWords: rawText.split(/\s+/g).length
-        }
-      );
+      const ttsResult = await generateTTS(prompt, primaryVoice, undefined, modelId, {
+        speakers: uniqueSpeakers.map((sp) => ({ name: sp.name || "Narrator", voice: sp.voice || "Puck" })),
+        temperature: project.settings.temperature,
+        useInteractionsAPI: project.settings.apiType === "Interactions",
+        snippetCount: selectedSnippets.length,
+        textCharCount: textChars,
+        textWordCount: textWords,
+      });
       const { data, mimeType } = ttsResult;
 
       const duration = await getAudioDuration(data, mimeType);
@@ -1495,8 +1548,10 @@ export default function App() {
           temperature: project.settings.temperature ?? 1.0,
           snippetStart,
           snippetEnd,
-          rawText: rawText,
-          promptText: prompt,
+          rawTextCharCount: textChars,
+          rawTextWordCount: textWords,
+          promptTextCharCount: prompt.trim().length,
+          promptTextWordCount: prompt.split(/\s+/g).length,
           audioDurationMs: Math.round(duration * 1000),
           audioSizeBytes: approxSizeBytes,
           promptTokens: ttsResult.promptTokens,
@@ -1583,8 +1638,8 @@ export default function App() {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         
         {/* Header */}
-        <header className="min-h-[4rem] py-2 border-b border-slate-800 flex flex-wrap items-center justify-between px-4 sm:px-6 bg-slate-900/50 shrink-0 gap-4">
-          <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+        <header className="min-h-16 py-2 border-b border-slate-800 flex flex-wrap items-center justify-between px-4 sm:px-6 bg-slate-900/50 shrink-0 gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-50">
             <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
               <Mic className="w-5 h-5 text-indigo-400" />
             </div>
@@ -2056,6 +2111,7 @@ export default function App() {
                       return (
                         <div 
                           key={snippet.id}
+                          data-playback-target={snippet.id}
                           draggable
                           onDragStart={(e) => handleSnippetDragStart(e, snippet.id, activeChapter.id)}
                           onDragOver={(e) => handleSnippetDragOver(e, snippet.id, activeChapter.id)}
@@ -2644,7 +2700,7 @@ interface SnippetEditorProps {
   totalSnippets: number;
   speakers: Speaker[];
   scenes?: Scene[];
-  chapterDefaultSpeakerId?: string | null;
+  chapterDefaultSpeakerId?: string | null | undefined;
   isPlaying: boolean;
   isFocused: boolean;
   isSelected: boolean;

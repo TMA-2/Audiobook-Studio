@@ -10,10 +10,13 @@ export type VoiceName = 'Achernar' | 'Achird' | 'Algenib' | 'Algieba' | 'Alnilam
   'Laomedeia' | 'Leda' | 'Orus' | 'Puck' | 'Pulcherrima' | 'Rasalgethi' | 'Sadachbia' | 'Sadaltager' | 'Schedar' | 
   'Sulafat' | 'Umbriel' | 'Vindemiatrix' | 'Zephyr' | 'Zubenelgenubi';
 
+export type Gender = 'Male' | 'Female' | 'Neutral';
+
 export interface VoiceProfile {
   id: VoiceName;
   name: string;
-  gender: 'Female' | 'Male' | 'Neutral';
+  // gender can match one or more types
+  gender: Gender;
   tone: string;
   pitch: string;
   description: string;
@@ -58,6 +61,8 @@ export interface ModelOption {
   name: string;
   description: string;
 }
+
+export type ModelName = "gemini-3.1-flash-tts-preview" | "gemini-2.5-flash-tts" | "gemini-2.5-pro-tts" | "gemini-2.5-flash-lite-preview-tts";
 
 export const GEMINI_MODELS: ModelOption[] = [
   { id: 'gemini-3.1-flash-tts-preview', name: 'Gemini 3.1 Flash TTS (Preview)', description: 'Primary high-quality TTS model' },
@@ -183,6 +188,9 @@ export interface Project {
     apiKey?: string;
     audioExportFormat?: 'M4A' | 'OGG_OPUS' | 'MP3' | 'WAV' | 'FLAC' | 'M4B';
     promptTemplate?: string;
+    sheetsLoggingEnabled?: boolean;
+    sheetsLoggingSpreadsheetId?: string;
+    sheetsLoggingSpreadsheetUrl?: string;
   };
   speakers: Speaker[];
   chapters: Chapter[];

@@ -75,7 +75,10 @@ export const GenerationGroupContainer: React.FC<GenerationGroupContainerProps> =
   };
 
   return (
-    <div className="relative rounded-2xl border-2 border-yellow-500/80 bg-yellow-950/10 shadow-lg shadow-yellow-950/20 my-4 transition-all overflow-hidden">
+    <div
+      data-playback-target={[generation.id, ...snippets.map(s => s.id)].join(' ')}
+      className="relative rounded-2xl border-2 border-yellow-500/80 bg-yellow-950/10 shadow-lg shadow-yellow-950/20 my-4 transition-all overflow-hidden"
+    >
       
       {/* Top Bar with Editable Title Pill & Cumulative Stats */}
       <div className="bg-slate-950/90 border-b border-yellow-500/40 p-2.5 flex flex-wrap items-center justify-between gap-3 backdrop-blur-sm">

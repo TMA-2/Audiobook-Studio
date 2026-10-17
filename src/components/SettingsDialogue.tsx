@@ -22,9 +22,7 @@ export const DEFAULT_PROMPT_TEMPLATE = `# {project_title}
 ### {speaker_name}
 - Role: {speaker_role}
 - Voice: {speaker_voice}
-
-#### Style
-{speaker_instructions}
+- Style: {speaker_instructions}
 
 ## Scene Context: {scene_name}
 {scene_context}
@@ -389,6 +387,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
   /**
    * Compiles the markdown prompt template using the unified compilePrompt utility.
    * 
+   * @todo Replace with a real markdown parser if needed for more complex rendering.
    * @param template The template string containing placeholders.
    * @returns The fully interpolated markdown string.
    */
@@ -624,7 +623,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                             {speaker.name.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <span className="text-xs font-semibold block truncate max-w-[120px]">
+                            <span className="text-xs font-semibold block truncate max-w-30">
                               {speaker.name}
                             </span>
                             <span className="text-[10px] text-slate-500 font-mono">
@@ -887,7 +886,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                           {scene.name.slice(0, 2).toUpperCase()}
                         </div>
                         <div>
-                          <span className="text-xs font-semibold block truncate max-w-[120px]">
+                          <span className="text-xs font-semibold block truncate max-w-30">
                             {scene.name}
                           </span>
                         </div>
@@ -937,7 +936,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                       onChange={(e) => handleUpdateScene(activeScene.id, { description: e.target.value })}
                       rows={6}
                       placeholder="Provide highly descriptive context guiding the atmosphere and pacing (e.g. Blinding bright morning show studio overlooking London's skyline. Fast energetic morning vibe...)"
-                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 rounded px-3 py-2 text-slate-100 outline-none text-sm font-mono text-xs transition-all leading-relaxed"
+                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 rounded px-3 py-2 text-slate-100 outline-none text-sm font-mono transition-all leading-relaxed"
                     />
                   </div>
 
@@ -1104,6 +1103,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                     ) : (
                       <button
                         type="button"
+                          onLoad={tempPreferences.sheetsLoggingEnabled ? (hasGoogleAuth ? undefined : handleConnectGoogle) : undefined}
                         onClick={handleConnectGoogle}
                         disabled={isAuthenticatingGoogle}
                         className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow transition-all disabled:opacity-50"
@@ -1135,11 +1135,11 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
                     <input
                       id="sheets-logging-toggle"
                       type="checkbox"
-                      checked={!!tempPreferences.sheetsLoggingEnabled}
+                      checked={!!tempPreferences.sheetsLoggingEnabled || project.settings.sheetsLoggingEnabled}
                       onChange={(e) => setTempPreferences(prev => ({ ...prev, sheetsLoggingEnabled: e.target.checked }))}
                       className="sr-only peer"
                     />
-                    <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
                   </label>
                 </div>
 

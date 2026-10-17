@@ -55,7 +55,14 @@ export function getAudioDurationFallback(bytes: Uint8Array, sampleRate: number =
 export function getAudioDuration(base64: string, mimeType: string, sampleRateStr: string = '24000'): Promise<number> {
   return new Promise((resolve) => {
     try {
-      const binaryString = atob(base64);
+      let binaryString: string;
+      try {
+        binaryString = Buffer.from(base64, "base64").toString("binary");
+      } catch {
+        console.warn("Failed to decode base64 using Buffer, falling back to atob.");
+        binaryString = atob(base64);
+      }
+
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
@@ -170,9 +177,9 @@ export async function playAudio(base64: string, mimeType: string, onEnd?: () => 
       if (onEnd) onEnd();
     };
     audio.onerror = (e) => {
-      console.error("Audio playback error:", e);
+      console.error("Audio playback error: #%d", e);
       URL.revokeObjectURL(url);
-      alert(`Audio Playback Error: Could not play audio.`);
+      // alert(`Audio Playback Error: Could not play audio.`);
       if (onEnd) onEnd();
     };
     
@@ -180,12 +187,12 @@ export async function playAudio(base64: string, mimeType: string, onEnd?: () => 
       await audio.play();
     } catch (error: any) {
       if (error.name !== 'AbortError') {
-        console.error("Actual playback failure", error);
+        console.error(`Actual playback failure: ${error.name}`, error);
         alert(`Playback failed!\n${error?.message || String(error)}`);
       }
     }
   } catch (error: any) {
-    console.error("Error playing audio:", error);
+    console.error(`Error playing audio: ${error.name}`, error);
     alert(`Audio Playback Error:\n${error?.message || String(error)}`);
     if (onEnd) onEnd();
   }

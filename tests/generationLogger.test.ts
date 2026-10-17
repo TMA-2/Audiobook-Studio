@@ -8,6 +8,7 @@ describe('generationLogger', () => {
     vi.restoreAllMocks();
   });
   it('creates a formatted log payload from successful generation parameters', () => {
+    const text = 'Hello world from audiobook studio.'
     const payload = createLogPayloadFromGeneration({
       status: 200,
       statusMessage: 'OK',
@@ -19,8 +20,10 @@ describe('generationLogger', () => {
       temperature: 1.0,
       snippetStart: 1,
       snippetEnd: 1,
-      rawText: 'Hello world from audiobook studio.',
-      promptText: 'System Prompt\nHello world from audiobook studio.',
+      rawTextCharCount: text.length,
+      rawTextWordCount: text.split(/\s+/g).length,
+      promptTextCharCount: `System Prompt:\n${text}`.length,
+      promptTextWordCount: `System Prompt:\n${text}`.split(/\s+/g).length,
       promptTokens: 20,
       responseTokens: 50,
       audioDurationMs: 3200,

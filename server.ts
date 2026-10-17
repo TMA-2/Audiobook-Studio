@@ -36,7 +36,7 @@ if (!fs.existsSync(LOGS_DIR)) {
 function logTtsRequest(data: Record<string, any>) {
   try {
     const today = new Date().toISOString().split("T")[0];
-    const logFilePath = path.join(LOGS_DIR, `tts_requests_${today}.json`);
+    const logFilePath = path.join(LOGS_DIR, `tts_requests_${today}.jsonl`);
     const line = JSON.stringify({ timestamp: new Date().toISOString(), ...data }) + "\n";
     fs.appendFileSync(logFilePath, line, "utf8");
   } catch (err) {
@@ -49,125 +49,9 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Initial default demo project to showcase the audio visual experience
-const SAMPLE_PROJECT: any[] = [
-  {
-    id: "whispering-shadows",
-    name: "The Whispering Shadows",
-    description: "A short gothic dialogue scene demonstrating pre-configured Speakers/Roles, global performance directives, and dynamic model selection.",
-    createdAt: new Date().toISOString(),
-    lastModifiedAt: new Date().toISOString(),
-    speakers: [
-      {
-        id: "spk-zephyr",
-        name: "Narrator (Zephyr)",
-        isNarrator: true,
-        voice: "Zephyr",
-        model: "gemini-3.1-flash-tts-preview",
-        pacing: "slow",
-        pitch: "normal",
-        emotion: "nominous",
-        customInstructions: "In a sweeping, atmospheric documentary voice"
-      },
-      {
-        id: "spk-kore",
-        name: "Elizabeth (Kore)",
-        isNarrator: false,
-        voice: "Kore",
-        model: "gemini-3.1-flash-tts-preview",
-        pacing: "slow",
-        pitch: "normal",
-        emotion: "whispering",
-        customInstructions: "Trembling with subtle, creeping fear, hushed voice"
-      },
-      {
-        id: "spk-puck",
-        name: "Arthur (Puck)",
-        isNarrator: false,
-        voice: "Puck",
-        model: "gemini-3.1-flash-tts-preview",
-        pacing: "normal",
-        pitch: "normal",
-        emotion: "excited",
-        customInstructions: "Reassuring yet youthful and energetic"
-      },
-      {
-        id: "spk-charon",
-        name: "Stranger (Charon)",
-        isNarrator: false,
-        voice: "Charon",
-        model: "gemini-3.1-flash-tts-preview",
-        pacing: "slow",
-        pitch: "low",
-        emotion: "none",
-        customInstructions: "Gentlemanly, smooth, incredibly deep, with a haunting chilling undertone"
-      }
-    ],
-    chapters: [
-      {
-        id: "chap-1",
-        projectId: "whispering-shadows",
-        title: "Chapter 1: An Unexpected Visitor",
-        order: 1,
-        blocks: [
-          {
-            id: "block-1",
-            chapterId: "chap-1",
-            speakerId: "spk-zephyr",
-            text: "The wind howled outside the old manor, throwing sheets of icy rain against the leaded glass windows. Inside, the limestone fireplace had dwindled to a heap of dying embers, casting long, shivering shadows across the floor.",
-            status: "idle",
-            audioData: null,
-            duration: null,
-            errorMessage: null
-          },
-          {
-            id: "block-2",
-            chapterId: "chap-1",
-            speakerId: "spk-kore",
-            text: "Did you hear that Arthur? I swore there was someone, or some thing, tapping against the mahogany glass at the balcony.",
-            status: "idle",
-            audioData: null,
-            duration: null,
-            errorMessage: null
-          },
-          {
-            id: "block-3",
-            chapterId: "chap-1",
-            speakerId: "spk-puck",
-            text: "Elizabeth, you must calm down. It is only the birch branches caught in the gables. Look, the tea is still warm—there is nothing to fear!",
-            status: "idle",
-            audioData: null,
-            duration: null,
-            errorMessage: null
-          },
-          {
-            id: "block-4",
-            chapterId: "chap-1",
-            speakerId: "spk-charon",
-            text: "A carriage breakdown on the low cliff is a terrible fate, wouldn't you say? I must apologize for invading your cozy retreat, but your lock was quite fragile.",
-            status: "idle",
-            audioData: null,
-            duration: null,
-            errorMessage: null
-          },
-          {
-            id: "block-5",
-            chapterId: "chap-1",
-            speakerId: "spk-kore",
-            text: "Arthur, get behind me! Who are you? How did you bypass the outer iron gates?",
-            status: "idle",
-            audioData: null,
-            duration: null,
-            errorMessage: null
-          }
-        ]
-      }
-    ]
-  }
-];
-
+//#region UNUSED
 // Initialize local project cache with default sample if needed
-function loadProjects(): any[] {
+function loadProjects(): any[] | undefined {
   try {
     if (fs.existsSync(PROJECTS_FILE)) {
       const data = fs.readFileSync(PROJECTS_FILE, 'utf-8');
@@ -175,10 +59,8 @@ function loadProjects(): any[] {
     }
   } catch (err) {
     console.error("Failed to read projects file:", err);
+    return undefined
   }
-  // Fallback to sample, and write it
-  saveProjects(SAMPLE_PROJECT);
-  return SAMPLE_PROJECT;
 }
 
 function saveProjects(projects: any[]) {
@@ -188,6 +70,7 @@ function saveProjects(projects: any[]) {
     console.error("Failed to write projects file:", err);
   }
 }
+//#endregion
 
 // Clean quotes helper for environment variables
 const cleanEnvVal = (val: string | undefined): string => {
@@ -297,8 +180,8 @@ app.post("/api/tts/generate", async (req, res) => {
   const apiKeyOverride = req.body.apiKey; // client override api key
   const temperature = req.body.temperature !== undefined ? parseFloat(req.body.temperature) : 1.0;
   const snippetCount = req.body.snippetCount;
-  const rawTextChars = req.body.textChars;
-  const rawTextWords = req.body.textWords;
+  const rawTextCharCount = req.body.textCharCount;
+  const rawTextWordCount = req.body.textWordCount;
   
   if (!text || (!speaker && (!requestSpeakers || requestSpeakers.length === 0))) {
     return res.status(400).json({ error: "Missing required parameters: text and speaker (or speakers array) are mandatory." });
@@ -338,6 +221,7 @@ app.post("/api/tts/generate", async (req, res) => {
     let responseTime: number | undefined = undefined;
     let tokenCount: { prompt?: number; response?: number; total?: number } = {};
 
+    //#region interactionsAPI
     if (interactionsAPI) {
       // Google's own fucking example
       /* const interaction = await client.interactions.create({
@@ -350,7 +234,6 @@ app.post("/api/tts/generate", async (req, res) => {
           ]
         },
       }); */
-      //#region interactionsAPI
       let response = await ai.interactions.create({
         model: selectedModel,
         response_modalities: [
@@ -471,10 +354,10 @@ app.post("/api/tts/generate", async (req, res) => {
           details: debugDetails
         });
       }
-      //endregion
     }
+    //#endregion
+    //#region generateContent
     else {
-      //region generateContent
       let response = await ai.models.generateContent({
         model: selectedModel,
         contents: [{ role: "user", parts: [{ text: formattedPrompt }] }],
@@ -571,25 +454,49 @@ app.post("/api/tts/generate", async (req, res) => {
         console.warn("[Server.generateContent] Empty audio response debug details:", JSON.stringify(debugDetails, null, 2));
         const detailsStr = JSON.stringify(debugDetails);
 
+        const logInfo = {
+          apiType: interactionsAPI ? 'interactions' : 'generateContent',
+          model: selectedModel,
+          speaker: speaker || 'multi-speaker',
+          charCount: rawTextCharCount,
+          rawTextCharCount,
+          reqCharCount: formattedPrompt.length,
+          rawTextWordCount,
+          wordCount: rawTextWordCount,
+          reqWordCount: formattedPrompt.split(/\s+/g).length,
+          responseTime,
+          snippetCount,
+          promptTokens: tokenCount.prompt || 0,
+          responseTokens: tokenCount.response || 0,
+          totalTokens: tokenCount.total || 0,
+          audioDuration: 0,
+          responseId: responseId || null,
+          note: detailsStr
+        };
+
+        logTtsRequest(logInfo);
+
         return res.status(500).json({ 
           error: `generateContent API returned an empty audio response. Details: ${detailsStr}`,
           details: debugDetails
         });
       }
-      //endregion
     }
+    //#endregion
 
     // log request time
     const elapsedMs = performance.now() - start;
     const elapsedSec = elapsedMs / 1000;
 
-    const charCount = text.length;
-    const wordCount = text.trim().split(/\s+/).length;
+    const charCount = rawTextCharCount;
+    const wordCount = rawTextWordCount;
     const reqCharCount = formattedPrompt.length;
-    const reqWordCount = formattedPrompt.split(/\s+/).length;
+    const reqWordCount = formattedPrompt.split(/\s+/g).length;
+
+    let audioDuration: number | undefined;
 
     try {
-      var audioDuration = await getAudioDuration(audioData, resMimeType);
+      audioDuration = await getAudioDuration(audioData, resMimeType);
     }
     catch (err: any) {
       console.error(`Couldn't get audioDuration(audioData[${audioData.length}], ${resMimeType}) again. ${err.message}`)
@@ -600,10 +507,10 @@ app.post("/api/tts/generate", async (req, res) => {
       apiType: interactionsAPI ? 'interactions' : 'generateContent',
       model: selectedModel,
       speaker: speaker || 'multi-speaker',
-      rawTextChars,
+      rawTextCharCount,
       charCount,
       reqCharCount,
-      rawTextWords,
+      rawTextWordCount,
       wordCount,
       reqWordCount,
       elapsedMs,
@@ -619,7 +526,7 @@ app.post("/api/tts/generate", async (req, res) => {
 
     // console.table(logInfo);
 
-    console.info(`Response [${elapsedSec.toFixed(3)}s]: ${snippetCount} snippets, ${rawTextChars}->${charCount}->${reqCharCount} char; ${rawTextWords}->${wordCount}->${reqWordCount} words. Tokens: prompt=${tokenCount.prompt}, resp=${tokenCount.response}, total=${tokenCount.total}.`);
+    console.info(`Response [${elapsedSec.toFixed(3)}s]: ${snippetCount} snippets, ${rawTextCharCount}->${charCount}->${reqCharCount} char; ${rawTextWordCount}->${wordCount}->${reqWordCount} words. Tokens: prompt=${tokenCount.prompt}, resp=${tokenCount.response}, total=${tokenCount.total}.`);
     console.debug(logInfo);
     
     return res.json({

@@ -5,6 +5,11 @@
  * to a dedicated Google Sheet ("AudiobookStudioLog yyyy") with monthly tabs.
  */
 
+/**
+ * Represents the payload for a single generation log entry.
+ * 
+ * @interface GenerationLogPayload
+ */
 export interface GenerationLogPayload {
   timestamp: number;
   status: number | string;
@@ -43,7 +48,8 @@ export function formatSpreadsheetTitle(date: Date = new Date()): string {
 /**
  * Returns the month sheet/tab title for a given date, e.g. "2026-08".
  * 
- * @param date The date to format.
+ * @param date A Date object to format. Defaults to the current date.
+ * @returns The formatted month sheet name as "yyyy-mm".
  */
 export function formatMonthSheetName(date: Date = new Date()): string {
   const year = date.getUTCFullYear();

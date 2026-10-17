@@ -6,6 +6,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   theme: 'dark',
   isDraggableSettingsEnabled: false,
   keyboardShortcutsEnabled: true,
+  sheetsLoggingEnabled: true,
+  sheetsSpreadsheetId: '1yo5hwm5Fc1TkQisgZ3Blhei9XAs6RtgJl39ZaDOeuTk'
 };
 
 export function loadUserPreferences(): UserPreferences {

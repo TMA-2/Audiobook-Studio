@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The currently playing snippet/group scrolls into view via `data-playback-target`.
+- allowedHosts to Vite config
+- Added ignored data and log directories in the Vite file watcher
+
+### Changes
+- Replaced the old stupid incompatible base project and added a themed demo project that uses each feature.
+- Changed the app title in index.html
+- Update the prompt template speaker style format.
+- Attempt to fix raw character & word logging by renaming textChars/textWords to textCharCount/textWordCount across client, server and logger. Issue still persists, I think.
+
+### Removed
+- Crappy server sample project
+- stale log file.
+
 ## [0.13.1] - 2026-09-01
 
 ### Fixed

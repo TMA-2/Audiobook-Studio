@@ -25,15 +25,15 @@ export async function generateTTS(
   styleInstruction: string | undefined, 
   modelId: string,
   options?: {
-    // NOTE: the Interactions API only supports Gemini 3.1 Flash TTS, not any of the 2.5 models, so there should probably be a chcek in the interface that if Interactions is selected, it forces 3.5 and disables the control
+    // NOTE: the Interactions API only supports Gemini 3.1 Flash TTS, not any of the 2.5 models, so there should probably be a chcek in the interface that if Interactions is selected, it forces 3.1 and disables the control
     useInteractionsAPI?: boolean | false;
     apiKey?: string;
     mimeType?: InteractionsMimeType | 'audio/l16'; 
     temperature?: number | 1.0;
     speakers?: Array<{ name: string, voice: string }>;
     snippetCount?: number | 1;
-    textChars?: number;
-    textWords?: number;
+    textCharCount?: number;
+    textWordCount?: number;
   }
 ): Promise<TTSResult> {
   if (!text.trim()) {
@@ -41,8 +41,10 @@ export async function generateTTS(
   }
 
   try {
-    // update 
-    console.info(`[Client] Requesting TTS. Model: ${modelId}, Voice: ${voiceName || 'multi'}, Temp: ${options?.temperature ?? 'default'}`);    
+    // update
+    console.info(
+      `[Client] Requesting TTS. Model: ${modelId}, Voice: ${voiceName || "multi"}, Temp: ${options?.temperature ?? 1.0}`,
+    );
     const response = await fetch("/api/tts/generate", {
       method: "POST",
       headers: {
@@ -59,8 +61,8 @@ export async function generateTTS(
         temperature: options?.temperature,
         speakers: options?.speakers,
         snippetCount: options?.snippetCount,
-        textChars: options?.textChars,
-        textWords: options?.textWords
+        textCharCount: options?.textCharCount,
+        textWordCount: options?.textWordCount
       }),
     });
 
