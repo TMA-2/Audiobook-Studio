@@ -52,6 +52,16 @@ export function getAudioDurationFallback(bytes: Uint8Array, sampleRate: number =
   return bytes.length / (sampleRate * channels * bytesPerSample);
 }
 
+/**
+ * Reads the sample rate from a mime type such as `audio/l16; rate=24000; channels=1`.
+ * @param mimeType Mime type string, possibly containing a `rate=` parameter.
+ * @param fallback Rate returned when the mime type has none.
+ */
+export function parseSampleRate(mimeType: string, fallback: number = 24000): number {
+  const match = /rate=(\d+)/i.exec(mimeType || '');
+  return match ? parseInt(match[1], 10) : fallback;
+}
+
 export function getAudioDuration(base64: string, mimeType: string, sampleRateStr: string = '24000'): Promise<number> {
   return new Promise((resolve) => {
     try {
@@ -69,10 +79,10 @@ export function getAudioDuration(base64: string, mimeType: string, sampleRateStr
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const sampleRate = parseInt(sampleRateStr) || 24000;
+      const sampleRate = parseSampleRate(mimeType, parseInt(sampleRateStr) || 24000);
 
-      // If raw PCM or WAV, calculate directly to avoid browser metadata loading issues
-      if (mimeType.includes('pcm') || mimeType.includes('wav') || !mimeType) {
+      // If raw PCM (incl. L16) or WAV, calculate directly to avoid browser metadata loading issues
+      if (/pcm|wav|l16/i.test(mimeType) || !mimeType) {
         const duration = getAudioDurationFallback(bytes, sampleRate);
         resolve(duration);
         return;
@@ -162,7 +172,7 @@ export async function playAudio(base64: string, mimeType: string, onEnd?: () => 
     } else {
       if (!isRiff) {
         // It's raw PCM, wrap it in a WAV header
-        blob = createWavBlob(bytes, 24000);
+        blob = createWavBlob(bytes, parseSampleRate(mimeType));
       } else {
         blob = new Blob([bytes], { type: 'audio/wav' });
       }

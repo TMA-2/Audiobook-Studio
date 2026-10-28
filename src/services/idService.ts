@@ -1,3 +1,8 @@
+
+/**
+ * Generates GUID v4 strings.
+ * @returns GUID
+ */
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();

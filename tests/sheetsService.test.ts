@@ -136,7 +136,7 @@ describe('sheetsService', () => {
     const result = await appendGenerationLogToSheet('fake-token', 'sheet-123', payload, new Date('2026-08-31T00:00:00Z'));
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining(`https://sheets.googleapis.com/v4/spreadsheets/sheet-123/values/${encodeURIComponent('2026-08!A:W')}:append?valueInputOption=USER_ENTERED`),
+      expect.stringContaining(`https://sheets.googleapis.com/v4/spreadsheets/sheet-123/values/${encodeURIComponent('2026-08!A:W')}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`),
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({

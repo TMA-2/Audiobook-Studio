@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-27
+
+### Fixed
+- Raw character/word counts in generation logs: `handleBulkGenerate` mapped snippets with a callback that had no `return`, so the counted text was only newlines.
+- Chapter header Prompt/Overhead stats now count the snippets `compilePrompt` builds the prompt from, so overhead is no longer negative.
+- `getAudioDuration` treats `audio/l16` as raw PCM and reads the sample rate from the mime type. This removes the server-side `Audio is not defined` error. `playAudio` uses the same rate.
+- Sheets logging appends with `insertDataOption=INSERT_ROWS` so new rows no longer overwrite existing ones.
+- Snippet editor typing lag: the textarea keeps local state and commits to project state after 300 ms idle, on blur, on split, and on unmount.
+
 ### Added
+- `computeRawTextStats()` in `src/utils/textStats.ts`, `createDebouncer()` in `src/utils/debouncer.ts`, and `parseSampleRate()` in `audioService.ts`.
+- Tests: `textStats`, `audioDuration`, `debouncer`; `sheetsService` asserts `INSERT_ROWS`.
 - The currently playing snippet/group scrolls into view via `data-playback-target`.
 - allowedHosts to Vite config
 - Added ignored data and log directories in the Vite file watcher

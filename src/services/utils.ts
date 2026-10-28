@@ -1,6 +1,11 @@
 import { Speaker } from '../types';
 
 //#region Formatting Utilities
+/**
+ * Formats a duration of time (in seconds) as `mm:ss`.
+ * @param seconds A duration in seconds.
+ * @returns `string` The formatted time. If null/undefined, returns `--:--`.
+ */
 export function formatDuration(seconds?: number): string {
   if (seconds === undefined || isNaN(seconds)) return '--:--';
   const mins = Math.floor(seconds / 60);
@@ -8,6 +13,11 @@ export function formatDuration(seconds?: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+/**
+ * Given an Error, returns its message or a JSON stringified version.
+ * @param {any} err An Error object, ideally.
+ * @returns {string} The Error's message property, or else a JSON-stringified version of its properties.
+ */
 export function formatError(err: any): string {
   if (err instanceof Error) {
     return `${err.message}`;
@@ -21,6 +31,13 @@ export function formatError(err: any): string {
 //#endregion
 
 //#region Color Utilities
+
+/**
+ * Automatically retrieves / generates CSS background, border, and text colors for one or more speakers.
+ * @param speakerId GUID representing a unique Speaker.
+ * @param speakers A Speaker array to pull from.
+ * @returns An object containing background, border, and text colors for the given speakers, contained in customStyle, customHoverStyle, and customControlStyle keys. The hue is incremented to generate maximum unique colors with pre-set . If the speakerId is not found, default colors are returned.
+ */
 export function getSpeakerStyles(speakerId: string | null, speakers: Speaker[]) {
   if (!speakerId) {
     return {
@@ -45,7 +62,7 @@ export function getSpeakerStyles(speakerId: string | null, speakers: Speaker[]) 
     };
   }
 
-  // randomized, unique colors each time
+  // deterministically unique colors each time
   const hue = (220 + index * 137.5) % 360;
   
   return {

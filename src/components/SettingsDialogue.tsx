@@ -428,7 +428,7 @@ export const SettingsDialogue: React.FC<SettingsDialogueProps> = ({
           if (trimmed.startsWith('##### ')) {
             return <h5 key={idx} className="text-sm font-semibold fg-onedark-cyan mt-3">{trimmed.substring(6)}</h5>;
           }
-          if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
             return <li key={idx} className="ml-4 list-disc pl-1 text-slate-300">{trimmed.substring(2)}</li>;
           }
           if (trimmed.startsWith('> ')) {

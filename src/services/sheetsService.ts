@@ -262,7 +262,7 @@ export async function appendGenerationLogToSheet(
 
   try {
     const encodedRange = encodeURIComponent(`${monthSheetName}!A:W`);
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodedRange}:append?valueInputOption=USER_ENTERED`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodedRange}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
 
     const response = await fetch(url, {
       method: 'POST',

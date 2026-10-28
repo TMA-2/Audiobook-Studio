@@ -1,7 +1,7 @@
 {
   "name": "audiobook-production-studio",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.13.2",
   "type": "module",
   "repository": {
     "type": "git",
@@ -37,6 +37,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
+    "@uiw/react-textarea-code-editor": "^3.1.2",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
@@ -44,5 +45,8 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
     "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "@google/genai": true
   }
 }

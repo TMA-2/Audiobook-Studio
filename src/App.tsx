@@ -38,100 +38,38 @@ import {
   Sparkles,
   Layers
 } from 'lucide-react';
-import { Project, Chapter, Snippet, Speaker, AudioEncoding, Generation, Scene, GEMINI_VOICES, GEMINI_MODELS } from './types';
-import { generateTTS } from './services/geminiService';
-import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMChunks } from './services/audioService';
-import { generateId } from './services/idService';
-import { parseMarkdown } from './services/markdownParser';
-import { saveAudio, getAudio, deleteAudio } from './services/dbService';
-import { parseSidecarStream, StreamingImportProgress } from './utils/sidecarImporter';
-import { formatDuration, formatError, getSpeakerStyles } from './services/utils';
-import * as StateModifiers from './services/appStateModifiers';
-import WaveformPlayer from './components/WaveformPlayer';
-import { SettingsDialogue } from './components/SettingsDialogue';
-import { GenerationGroupContainer } from './components/GenerationGroupContainer';
-import { getGenerationValidationState } from './utils/generationValidator';
-import { compilePrompt } from './utils/promptCompiler';
-import { exportSidecarStream } from './utils/sidecarExporter';
-import { groupSnippetsByGeneration, GenerationGroup } from './utils/generationGrouping';
-import { UserPreferences } from './types';
+import CodeEditor from "@uiw/react-textarea-code-editor";
+import {
+  Project,
+  Chapter,
+  Snippet,
+  Speaker,
+  AudioEncoding,
+  Generation,
+  Scene,
+  GEMINI_VOICES,
+  GEMINI_MODELS,
+} from "./types";
+import { generateTTS } from "./services/geminiService";
+import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMChunks } from "./services/audioService";
+import { generateId } from "./services/idService";
+import { parseMarkdown } from "./services/markdownParser";
+import { saveAudio, getAudio, deleteAudio } from "./services/dbService";
+import { parseSidecarStream, StreamingImportProgress } from "./utils/sidecarImporter";
+import { formatDuration, formatError, getSpeakerStyles } from "./services/utils";
+import * as StateModifiers from "./services/appStateModifiers";
+import WaveformPlayer from "./components/WaveformPlayer";
+import { SettingsDialogue } from "./components/SettingsDialogue";
+import { GenerationGroupContainer } from "./components/GenerationGroupContainer";
+import { getGenerationValidationState } from "./utils/generationValidator";
+import { compilePrompt } from "./utils/promptCompiler";
+import { computeRawTextStats } from "./utils/textStats";
+import { createDebouncer } from "./utils/debouncer";
+import { exportSidecarStream } from "./utils/sidecarExporter";
+import { groupSnippetsByGeneration, GenerationGroup } from "./utils/generationGrouping";
+import { UserPreferences, INITIAL_PROJECT } from "./types";
 import { loadUserPreferences } from './services/preferenceService';
 import { createLogPayloadFromGeneration, logGenerationEvent } from './utils/generationLogger';
-
-// --- Constants ---
-const defaultEncoding: AudioEncoding = 'M4A';
-const INITIAL_PROJECT: Project = {
-  title: "Big Tiddy Goth Lesbians",
-  settings: {
-    model: GEMINI_MODELS[0],
-    temperature: 1.0,
-    encoding: defaultEncoding,
-    sampleRate: '24000'
-  },
-  speakers: [
-    {
-      id: "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
-      order: 0,
-      name: "Evangeline",
-      voice: "Pulcherrima",
-      style:
-        "You're a Big Tiddy Goth/Punk Lesbian (actually, your tiddy is average) and you're seen as a delinquent at school, especially by Catty Mean Girl Prep Tiffani who gives you grief at school, while she's secretly crushing on you. However, you practice 'radical ownership' and are able to defuse most of her comments by 'yes, and'-ing them, turning them back on her by becoming extremely flirtatious and forward while invading her physical space, causing her to retreat or go on the defensive, blushing and stammering. You are \"a bit\" of a tease (actually you're kind of sadistic), and you enjoy making her squirm... in multiple ways. You are confident, assertive, and unapologetically yourself. You have a dark sense of humor and a sharp wit, which you'll use to your advantage along with the aforementioned aspects to capture Tiffani's heart. Your voice is 100% mid-2000s goth/alt-girl depiction. Think Angelina Jolie in Hackers or Neve Campbell in Wild Things but with more leather jackets and ripped stockings and NO Matt Dillon.",
-      role: "Big tiddy goth/punk lesbian",
-      model: {
-        name: "gemini-2.5-flash-tts",
-        id: "gemini-3.1-flash-tts-preview",
-        description: "Gemini 3.1 Flash TTS Preview",
-      },
-      isNarrator: true
-    },
-    {
-      id: "01a0b1f3-5998-7313-8cff-72836b7524e7",
-      order: 1,
-      name: "Tiffani",
-      voice: "Autonoe",
-      style:
-        "You're a Catty Mean Girl Prep, the queen bee, and also somewhat closeted lesbian. Your natural enemy (and secret crush) is Evangeline the Big Tiddy Goth/Punk Lesbian. You always try to bully her at school, almost always turning into a self-own as soon as she deflects it and flashes her big beautiful smile at you and gets very close, causing you to blush and stammer. You are a bit of a flirt, but you don't know how to handle it when Evangeline turns the tables on you and starts teasing you back, making you squirm and blush even more. You have a sharp tongue and a quick wit, but you're also insecure and unsure of how to express your feelings for Evangeline. Your voice is 100% 90s or mid-2000s preppy girl. Think Alicia Silverstone in Clueless or Denise Richards in Wild Things if you were less of a murderous piece of shit, and in love with Neve Campbell's character. Your warlots of short tartan skirts, argyle sweater-vests, kneesocks, white blouses, and ponytails.",
-      role: "Catty Mean Girl Prep",
-      model: {
-        name: "gemini-2.5-flash-tts",
-        id: "gemini-3.1-flash-tts-preview",
-        description: "Gemini 3.1 Flash TTS Preview",
-      },
-      isNarrator: true,
-    },
-  ],
-  scenes: [
-    {
-      id: "01a0adab-02b0-7292-8727-da86dc535627",
-      name: "A Gothic Mansion",
-      order: 0,
-      description:
-        "Imagine a grand, old mansion perched atop a hill, shrouded in mist. The architecture is ornate, with towering spires and intricate stonework. The windows are tall and arched, some cracked and weathered by time. The front door is massive, made of dark wood with iron accents, slightly ajar as if inviting the brave to enter. The surrounding grounds are overgrown with wild ivy and twisted trees, their branches reaching out like skeletal fingers. A faint light flickers from within, casting eerie shadows that dance across the foggy landscape. The air is thick with the scent of damp earth and the distant sound of thunder echoes through the night.\nInside, a 'bad girl' goth lesbian and her preppy cheerleader classmate have been sent on a dare to explore it. The goth is less bothered by the surroundings and takes every opportunity to tease and flirt with the cheerleader, who is visibly nervous and on edge. The tension between them is palpable, with the goth's dark allure contrasting sharply against the cheerleader's bright and anxious demeanor. As they navigate the creaking hallways and shadowy corners, their interactions are charged with a mix of fear, excitement, and thick, sweaty sexual chemistry. Suddenly, they come across the master bedroom...",
-    },
-  ],
-  chapters: [
-    {
-      id: "c1d2e3f4-5678-90ab-cdef-1234567890ab",
-      order: 0,
-      title: 'Chapter 1',
-      defaultSpeakerId: null,
-      isCollapsed: false,
-      snippets: [
-        {
-          id: generateId(),
-          order: 0,
-          text: 'It was a dark and stormy night.',
-          speakerId: "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
-          sceneId: "01a0adab-02b0-7292-8727-da86dc535627",
-          status: 'idle',
-          isCollapsed: false,
-          generations: [],
-          activeGenerationId: null
-        }
-      ]
-    }
-  ],
-};
 
 //#region Global Helper Components
 /**
@@ -535,7 +473,7 @@ export default function App() {
                     snippetId: snippet.id,
                     speakerId: sg.speakerId || snippet.speakerId || null,
                     timestamp: sg.timestamp || new Date().toISOString(),
-                    model: sg.model || prev.settings.model.id || 'gemini-3.1-flash-tts-preview',
+                    model: sg.model || prev.settings.model || "gemini-3.1-flash-tts-preview",
                     text: sg.text || snippet.text,
                     audioMimeType: sg.audioMimeType || 'audio/wav',
                     duration: sg.duration
@@ -1020,7 +958,7 @@ export default function App() {
           previewText,
           speaker.voice,
           combinedStyle,
-          project.settings.model.id,
+          project.settings.model,
           {
             textCharCount: previewText.length,
             textWordCount: previewText.split(/\s+/g).length,
@@ -1171,17 +1109,12 @@ export default function App() {
         snippetsOverride: [snippet]
       });
 
-      const modelId = project.settings.model.id;
+      const modelId = project.settings.model;
       const combinedStyle = getCombinedStyleInstructions(speaker);
       
       // get raw snippet text counts and number of snippets
       const snippetCount = targetSnippets.length;
-      const rawText = targetSnippets.map(s => {
-        return s.text.trim();
-      }).join("\n");
-
-      const rawCharCount = rawText.length;
-      const rawWordCount = rawText.split(/\s+/g).length;
+      const { chars: rawCharCount, words: rawWordCount } = computeRawTextStats(targetSnippets);
 
       const ttsResult = await generateTTS(
         prompt,
@@ -1500,17 +1433,9 @@ export default function App() {
       });
 
       // 7. Format and interpolate transcript
-      let rawText = "";
-      if (selectedSnippets.length > 0) {
-        rawText = selectedSnippets.map(s => {
-          (s.text || "").trim();
-        }).join('\n');
-      }
+      const { chars: textChars, words: textWords } = computeRawTextStats(selectedSnippets);
 
-      const textChars = rawText.length;
-      const textWords = rawText.split(/\s+/g).length;
-
-      const modelId = project.settings.model.id;
+      const modelId = project.settings.model;
       const primaryVoice = uniqueSpeakers[0]?.voice || "Puck";
       const ttsResult = await generateTTS(prompt, primaryVoice, undefined, modelId, {
         speakers: uniqueSpeakers.map((sp) => ({ name: sp.name || "Narrator", voice: sp.voice || "Puck" })),
@@ -1794,12 +1719,14 @@ export default function App() {
             const selectedSnippets = activeChapter.snippets.filter(s => selectedSnippetIds.has(s.id));
             const isAnySelected = selectedSnippets.length > 0;
 
-            const selCharCount = isAnySelected ? selectedSnippets.reduce((acc, s) => acc + s.text.length, 0) : chapterCharCount;
-            const selWordCount = isAnySelected ? selectedSnippets.reduce((acc, s) => acc + (s.text.trim() ? s.text.trim().split(/\s+/).length : 0), 0) : chapterWordCount;
-
             const compiledRes = isAnySelected
               ? compilePrompt({ project, activeChapter, selectedSnippetIds })
               : compilePrompt({ project, activeChapter });
+
+            // Raw counts cover the snippets the prompt is actually built from
+            const rawStats = computeRawTextStats(compiledRes.targetSnippets);
+            const selCharCount = rawStats.chars;
+            const selWordCount = rawStats.words;
 
             const promptCharCount = compiledRes.prompt.length;
             const promptWordCount = compiledRes.prompt.trim() ? compiledRes.prompt.trim().split(/\s+/).length : 0;
@@ -1814,7 +1741,7 @@ export default function App() {
                 <div className="sticky top-0 z-20 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shrink-0 shadow-md rounded-t-xl">
                   {/* Top Row: Chapter Information & Chapter Actions */}
                   <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-[280px]">
+                    <div className="flex items-center gap-3 flex-1 min-w-70">
                       <input 
                         type="checkbox" 
                         checked={allSnippetsSelected}
@@ -1825,22 +1752,34 @@ export default function App() {
                       <IconButton 
                         icon={activeChapter.isCollapsed ? ChevronRight : ChevronDown} 
                         onClick={() => updateChapterState(activeChapter.id, { isCollapsed: !activeChapter.isCollapsed })} 
-                        className="!p-1 text-slate-400 hover:text-slate-200" 
+                        className="p-1! text-slate-400 hover:text-slate-200"
                         title={activeChapter.isCollapsed ? "Expand Chapter" : "Collapse Chapter"}
                       />
                       <div className="flex flex-col opacity-0 group-hover/chapter:opacity-100 transition-opacity mr-1 shrink-0">
-                        <IconButton icon={ArrowUp} onClick={() => moveChapterState(chapterIndex, 'up')} className="!p-0" disabled={chapterIndex === 0} title="Move Chapter Up" />
-                        <IconButton icon={ArrowDown} onClick={() => moveChapterState(chapterIndex, 'down')} className="!p-0" disabled={chapterIndex === project.chapters.length - 1} title="Move Chapter Down" />
+                        <IconButton
+                          icon={ArrowUp}
+                          onClick={() => moveChapterState(chapterIndex, "up")}
+                          className="p-0"
+                          disabled={chapterIndex === 0}
+                          title="Move Chapter Up"
+                        />
+                        <IconButton
+                          icon={ArrowDown}
+                          onClick={() => moveChapterState(chapterIndex, "down")}
+                          className="p-0"
+                          disabled={chapterIndex === project.chapters.length - 1}
+                          title="Move Chapter Down"
+                        />
                       </div>
                       <input 
                         type="text" 
                         value={activeChapter.title}
                         onChange={(e) => updateChapterState(activeChapter.id, { title: e.target.value })}
-                        className="bg-transparent text-lg font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 flex-1 min-w-[140px] max-w-sm truncate"
+                        className="bg-transparent text-lg font-semibold text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 flex-1 min-w-35 max-w-sm truncate"
                       />
                       
                       {/* Chapter Default Speaker */}
-                      <div className="flex items-center gap-1.5 ml-2 min-w-[160px]">
+                      <div className="flex items-center gap-1.5 ml-2 min-w-40">
                         <Users className="w-4 h-4 text-slate-500 shrink-0" />
                         <select 
                           value={activeChapter.defaultSpeakerId || ''}
@@ -2209,8 +2148,15 @@ export default function App() {
                     onClick={() => setIsChaptersCollapsed(!isChaptersCollapsed)}
                     className="flex items-center gap-1.5 cursor-pointer select-none group/hdr"
                   >
-                    <button type="button" className="p-0.5 text-slate-500 group-hover/hdr:text-slate-300 transition-colors">
-                      {isChaptersCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <button
+                      type="button"
+                      className="p-0.5! text-slate-500 group-hover/hdr:text-slate-300 transition-colors"
+                    >
+                      {isChaptersCollapsed ? (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
                     </button>
                     <h3 className="text-xs font-semibold text-slate-400 group-hover/hdr:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 transition-colors">
                       <BookOpen className="w-3.5 h-3.5 text-indigo-400" /> Chapters
@@ -2255,13 +2201,13 @@ export default function App() {
                               <IconButton 
                                 icon={ArrowUp} 
                                 onClick={(e) => { e.stopPropagation(); moveChapterState(index, 'up'); }} 
-                                className="!p-0.5 text-slate-500 hover:text-slate-300" 
+                                className="p-0.5! text-slate-500 hover:text-slate-300"
                                 disabled={index === 0} 
                               />
                               <IconButton 
                                 icon={ArrowDown} 
                                 onClick={(e) => { e.stopPropagation(); moveChapterState(index, 'down'); }} 
-                                className="!p-0.5 text-slate-500 hover:text-slate-300" 
+                                className="p-0.5! text-slate-500 hover:text-slate-300"
                                 disabled={index === project.chapters.length - 1} 
                               />
                               <IconButton 
@@ -2287,7 +2233,7 @@ export default function App() {
                                     }
                                   });
                                 }} 
-                                className="!p-0.5 text-slate-500 hover:text-red-400" 
+                                className="p-0.5! text-slate-500 hover:text-red-400"
                               />
                             </div>
                           </div>
@@ -2310,8 +2256,15 @@ export default function App() {
                     onClick={() => setIsScenesCollapsed(!isScenesCollapsed)}
                     className="flex items-center gap-1.5 cursor-pointer select-none group/hdr"
                   >
-                    <button type="button" className="p-0.5 text-slate-500 group-hover/hdr:text-slate-300 transition-colors">
-                      {isScenesCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <button
+                      type="button"
+                      className="p-0.5! text-slate-500 group-hover/hdr:text-slate-300 transition-colors"
+                    >
+                      {isScenesCollapsed ? (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
                     </button>
                     <h3 className="text-xs font-semibold text-slate-400 group-hover/hdr:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 transition-colors">
                       <Clapperboard className="w-3.5 h-3.5 text-indigo-400" /> Scenes
@@ -2382,8 +2335,15 @@ export default function App() {
                     onClick={() => setIsSpeakersCollapsed(!isSpeakersCollapsed)}
                     className="flex items-center gap-1.5 cursor-pointer select-none group/hdr"
                   >
-                    <button type="button" className="p-0.5 text-slate-500 group-hover/hdr:text-slate-300 transition-colors">
-                      {isSpeakersCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <button
+                      type="button"
+                      className="p-0.5! text-slate-500 group-hover/hdr:text-slate-300 transition-colors"
+                    >
+                      {isSpeakersCollapsed ? (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
                     </button>
                     <h3 className="text-xs font-semibold text-slate-400 group-hover/hdr:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 transition-colors">
                       <Users className="w-3.5 h-3.5 text-indigo-400" /> Speakers
@@ -2624,10 +2584,10 @@ export default function App() {
 
       {/* Sidecar Import Progress Indicator */}
       {sidecarImportProgress && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-110 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-lg animate-spin">
+              <div className="p-3 bg-transparent text-indigo-400 rounded-lg animate-spin">
                 <RefreshCw className="w-6 h-6" />
               </div>
               <div>
@@ -2637,7 +2597,7 @@ export default function App() {
             </div>
 
             <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
-              <div 
+              <div
                 className="bg-indigo-500 h-full transition-all duration-150 rounded-full"
                 style={{ width: `${sidecarImportProgress.percent}%` }}
               />
@@ -2657,7 +2617,7 @@ export default function App() {
       )}
 
       {confirmModal && confirmModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-100">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-100 flex items-center justify-center p-4 animate-in fade-in duration-100">
           <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-100">
             <h3 className="text-base font-bold text-slate-100">{confirmModal.title}</h3>
             <p className="text-sm text-slate-400 leading-relaxed">{confirmModal.message}</p>
@@ -2748,10 +2708,48 @@ function SnippetEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isHovered, setIsHovered] = useState(false);
 
+  // Typing updates local state only; the project state is committed after a pause, on blur, and on unmount.
+  const [localText, setLocalText] = useState(snippet.text);
+  const latestTextRef = useRef(snippet.text);
+  const hasPendingTextRef = useRef(false);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  const [textCommitter] = useState(() => createDebouncer(() => {
+    hasPendingTextRef.current = false;
+    onUpdateRef.current({ text: latestTextRef.current });
+  }, 300));
+
+  useEffect(() => {
+    if (!hasPendingTextRef.current) {
+      latestTextRef.current = snippet.text;
+      setLocalText(snippet.text);
+    }
+  }, [snippet.text]);
+
+  useEffect(() => () => textCommitter.flush(), [textCommitter]);
+
+  const handleTextChange = (value: string) => {
+    latestTextRef.current = value;
+    hasPendingTextRef.current = true;
+    setLocalText(value);
+    textCommitter.schedule();
+  };
+
+  const handleTextBlur = () => {
+    textCommitter.cancel();
+    hasPendingTextRef.current = false;
+    const trimmed = latestTextRef.current.trim();
+    latestTextRef.current = trimmed;
+    setLocalText(trimmed);
+    onUpdate({ text: trimmed });
+  };
+
   const handleSplit = () => {
     if (textareaRef.current) {
       const pos = textareaRef.current.selectionStart;
-      if (pos > 0 && pos < snippet.text.length) {
+      if (pos > 0 && pos < localText.length) {
+        textCommitter.flush();
         onSplit(pos);
       }
     }
@@ -2766,7 +2764,7 @@ function SnippetEditor({
 
   useEffect(() => {
     adjustHeight();
-  }, [snippet.text, snippet.isCollapsed, adjustHeight]);
+  }, [localText, snippet.isCollapsed, adjustHeight]);
 
   useEffect(() => {
     const parentEl = textareaRef.current?.parentElement;
@@ -2795,8 +2793,8 @@ function SnippetEditor({
   const hasAudio = !isInsideGroup && !!(snippet.activeGenerationId && snippet.generations.some(g => g.id === snippet.activeGenerationId));
   const isGenerating = snippet.status === 'generating';
 
-  const wordCount = snippet.text.trim() ? snippet.text.trim().split(/\s+/).length : 0;
-  const charCount = snippet.text.length;
+  const wordCount = localText.trim() ? localText.trim().split(/\s+/).length : 0;
+  const charCount = localText.length;
   const tokenEstimate = Math.ceil(charCount / 4) || 0;
 
   const speakerStyles = getSpeakerStyles(effectiveSpeakerId, speakers);
@@ -2833,10 +2831,18 @@ function SnippetEditor({
         <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-1 py-0.5 rounded shrink-0">
           {index + 1}/{totalSnippets}
         </span>
-        <IconButton icon={ChevronRight} onClick={(e: any) => { e.stopPropagation(); onUpdate({ isCollapsed: false }); }} className="!p-0.5 text-slate-500" title="Expand Snippet" />
-        
-        <div 
-          className="flex-1 flex items-center gap-3 overflow-hidden cursor-pointer" 
+        <IconButton
+          icon={ChevronRight}
+          onClick={(e: any) => {
+            e.stopPropagation();
+            onUpdate({ isCollapsed: false });
+          }}
+          className="p-0.5! text-slate-500"
+          title="Expand Snippet"
+        />
+
+        <div
+          className="flex-1 flex items-center gap-3 overflow-hidden cursor-pointer"
           onClick={() => onUpdate({ isCollapsed: false })}
         >
           <span 
@@ -2899,10 +2905,27 @@ function SnippetEditor({
         <div className="cursor-grab active:cursor-grabbing opacity-40 hover:opacity-100 transition-opacity">
           <GripVertical className="w-4 h-4 text-slate-400" />
         </div>
-        <IconButton icon={ChevronDown} onClick={() => onUpdate({ isCollapsed: true })} className="!p-0.5 text-slate-500" title="Collapse Snippet" />
+        <IconButton
+          icon={ChevronDown}
+          onClick={() => onUpdate({ isCollapsed: true })}
+          className="p-0.5! text-slate-500"
+          title="Collapse Snippet"
+        />
         <div className="flex flex-col items-center opacity-20 group-hover:opacity-100 transition-opacity">
-          <IconButton icon={ArrowUp} onClick={() => onMove('up')} className="!p-0" disabled={index === 0} title="Move Up" />
-          <IconButton icon={ArrowDown} onClick={() => onMove('down')} className="!p-0" disabled={index === totalSnippets - 1} title="Move Down" />
+          <IconButton
+            icon={ArrowUp}
+            onClick={() => onMove("up")}
+            className="p-0!"
+            disabled={index === 0}
+            title="Move Up"
+          />
+          <IconButton
+            icon={ArrowDown}
+            onClick={() => onMove("down")}
+            className="p-0!"
+            disabled={index === totalSnippets - 1}
+            title="Move Down"
+          />
         </div>
       </div>
 
@@ -2920,7 +2943,7 @@ function SnippetEditor({
               value={snippet.speakerId || ''}
               style={effectiveSpeakerId ? speakerStyles.customControlStyle : {}}
               onChange={(e) => onUpdate({ speakerId: e.target.value || null })}
-              className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-[200px] ${snippet.speakerId ? 'text-indigo-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+              className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-50 ${snippet.speakerId ? "text-indigo-300" : "bg-slate-900 border-slate-700 text-slate-400"}`}
             >
               <option value="">Inherit ({speakers.find(s => s.id === chapterDefaultSpeakerId)?.name || 'None'})</option>
               {speakers.map(s => (
@@ -2933,7 +2956,7 @@ function SnippetEditor({
               <select 
                 value={snippet.sceneId || ''}
                 onChange={(e) => onUpdate({ sceneId: e.target.value || undefined })}
-                className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-[180px] ${snippet.sceneId ? 'bg-teal-950 text-teal-300 border-teal-800' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+                className={`text-xs rounded px-2 py-1 focus:outline-none border w-auto max-w-45 ${snippet.sceneId ? "bg-teal-950 text-teal-300 border-teal-800" : "bg-slate-900 border-slate-700 text-slate-400"}`}
               >
                 <option value="">No Scene</option>
                 {scenes.map(s => (
@@ -2959,9 +2982,9 @@ function SnippetEditor({
         {/* Text Area */}
         <textarea
           ref={textareaRef}
-          value={snippet.text}
-          onChange={(e) => onUpdate({ text: e.target.value })}
-          onBlur={() => onUpdate({ text: snippet.text.trim() })}
+          value={localText}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onBlur={handleTextBlur}
           onFocus={onFocus}
           disabled={isPlaying || isGenerating}
           placeholder="Enter text here..."
