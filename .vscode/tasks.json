@@ -1,0 +1,44 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+    {
+      "label": "tsc: dev - tsconfig.json",
+      "type": "typescript",
+      "tsconfig": "tsconfig.json",
+      "option": "dev",
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "tsc: debug - tsconfig.json",
+      "type": "typescript",
+      "tsconfig": "tsconfig.json",
+      "option": "debug",
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "tsc: watch - tsconfig.json",
+      "type": "typescript",
+      "tsconfig": "tsconfig.json",
+      "option": "watch",
+      "problemMatcher": [
+        "$tsc-watch"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "npm: dev",
+      "type": "npm",
+      "script": "dev",
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "detail": "tsx server.ts"
+    }
+  ]
+}

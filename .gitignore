@@ -3,17 +3,29 @@ Archived/
 node_modules/
 build/
 dist/
+data/
 coverage/
-assets/vertexairunner*.json
+assets/
+**/*vertexairunner*.json
+
 logs/
 *.log
+
+# AI Crap
 .agents/
-.DS_Store
+.github/skills/
 GEMINI.md
+**/skills/*
+
+.DS_Store
 .zed/*
 !.zed/debug.json
 !.zed/tasks.json
+.vscode/*
+!.vscode/debug.json
+!.vscode/tasks.json
 
+# miscellany whose purpose I don't even recall
 NOTES/ZED_AGENT_HISTORY.md
 NOTES/GitHubCopilot_Thread_History.md
 
@@ -22,10 +34,9 @@ NOTES/GitHubCopilot_Thread_History.md
 firebase-applet-config.json
 .env*
 !.env.example
+# just 'cause it has hostnames in it
+vite.config.js
 
 # lock files
 *.lock
 *-lock.json
-
-# Impeccable
-PRODUCT.md

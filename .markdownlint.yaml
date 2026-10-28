@@ -13,7 +13,7 @@ MD012:                # no-multiple-blanks
   maximum: 2
   severity: warning
 MD013:                # line-length
-  line_length: 320
+  line_length: 512
   heading_line_length: 120
   code_blocks: false
   tables: false
@@ -26,3 +26,6 @@ MD033: true           # no-inline-html
 MD036: false          # no-emphasis-as-heading
 MD051:                # link-fragments
   ignore_case: true
+MD060:
+  aligned_delimiter: true
+  style: aligned
