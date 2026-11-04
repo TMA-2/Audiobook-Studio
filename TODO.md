@@ -1,9 +1,11 @@
 # TODO
-<!-- markdownlint-config
-no-bare-urls: true
-MD013:
-  line_length: 512
-MD040: false
+<!-- markdownlint-configure-file
+{
+  "MD013": false,
+  "MD026": false,
+  "MD040": false,
+  "MD053": false
+}
 -->
 
 **Key**
@@ -17,17 +19,18 @@ MD040: false
 ## Rough Roadmap
 
 ### 0.13.2
-- [x] Fix [[TODO#FIX THE GOD DAMN RAW CHARACTER COUNT LOGGING ALREADY|this stupid raw char/word count bug]].
-- [x] Fix the chapter header `Prompt Chars`, `Prompt Words`, and `Overhead` counts. Overhead is just the difference between raw characters and formatted prompt characters though, so it should always be a positive value. Regarding what it counts: add up the selected snippets if selection, otherwise the chapter's snippets.
 - [o] Fix the [[TODO#Snippet Editor|input lag issue]] in the snippet editor.
 - [o] Sheets logging is overwriting the same row continuously. Not sure why, given it's not having to check the last row written and then write to that index+1, it's just using the `append` method of the API. something's up, though, because it *has* logged many times, but looking at the edit history for the last few days, it continually writes to one row, so it's... stuck or something
+- [x] Fix [[TODO#FIX THE GOD DAMN RAW CHARACTER COUNT LOGGING ALREADY|this stupid raw char/word count bug]].
+- [x] Fix the chapter header `Prompt Chars`, `Prompt Words`, and `Overhead` counts. Overhead is just the difference between raw characters and formatted prompt characters though, so it should always be a positive value. Regarding what it counts: add up the selected snippets if selection, otherwise the chapter's snippets.
 - [x] [[TODO#getAudioDuration error|Two constant errors]] are being caused by `getAudioDuration()`, and I have no idea why. I assume it has something to do with promise/response timing or debounce or some shit.
 
-### 1.13.0
+### 0.13.2 -> 1.13.0
 - [ ] Implement the new [[TODO#Project Configuration / Schema|ABS project format]]
   - [ ] This means `project.audio.json` sidecars will go away, *however* at least the loading support needs to stay so they can be opened and then saved to the new format
 
-### 1.14.0
+### 0.13.2 -> 0.14.2
+- [ ] Implement [[TODO#Architecture|forced alignment]] feature. Woo hoo.
 - [ ] Implement Gemini 3.8 Flash TTS support, which will require some workflow changes
   - [ ] See: Migration Guide [[TODO#API Features / Backend|API Changes]]
 > This will require some amount of re-design of the prompt template, obviously, as well as speaker handling, prompt template design, how best to handle generations (i.e. number of speakers, longer or shorter, separating requests by mood/emotion or delivery, etc.), and more.
@@ -39,7 +42,7 @@ MD040: false
 - [ ] Sheets service should try to authenticate when the app loads. Typically it'll just pop up a login box that disappears after two seconds and that's it. Or, if there's a way to tell when the token has expired, to automatically re-authenticate (possibly opening the window such that it doesn't steal focus, like a "pop-under")
 
 ### Snippet editing lag
-- [ ] Fix text editing (and UI reactivity, I think) delay. Seems to be pretty directly correlated to the number of snippets in the chapter.
+- [x] Fix text editing (and UI reactivity, I think) delay. Seems to be pretty directly correlated to the number of snippets in the chapter.
 
 > [!NOTE]
 > Typing in a snippet textarea lags in proportion to the number of snippets in the chapter (~250ms at 6, ~750ms at 30, dev build; INP trace is ~85% processing duration, not paint).
@@ -57,7 +60,7 @@ MD040: false
 - [ ] (4) grep for JSON.stringify, structuredClone, scrollHeight, and .filter/.map in render bodies, and effects depending on project/chapter.
 
 ### getAudioDuration error
-[An error](./src/services/audioService.ts:182) pops up maybe 1/3 of the time on playback, which seems to be a false positive of some sort, as after clicking through the alert, the generation plays fine. I've commented out the alert line for now, but it needs to be fixed.
+- [x] [An error](./src/services/audioService.ts:182) pops up maybe 1/3 of the time on playback, which seems to be a false positive of some sort, as after clicking through the alert, the generation plays fine. I've commented out the alert line for now, but it needs to be fixed.
 
 ```log
 08:47:53.427 audioService.ts:181 Audio playback error:
@@ -76,9 +79,9 @@ at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
 ```
 
 ### FIX THE GOD DAMN RAW CHARACTER COUNT LOGGING ALREADY
-- [ ] Raw character & word count too small in logging.
-- [ ] This is almost certainly a failure on my part, using `.map()` incorrectly
-- [ ] Map out the entire flow of a snippet generation request, from the moment the user clicks "Generate" to the final API call, including all intermediate steps, function calls, and data transformations. This will help identify where character counts may be miscalculated or lost.
+- [x] Raw character & word count too small in logging.
+- [x] This is almost certainly a failure on my part, using `.map()` incorrectly
+- [x] Map out the entire flow of a snippet generation request, from the moment the user clicks "Generate" to the final API call, including all intermediate steps, function calls, and data transformations. This will help identify where character counts may be miscalculated or lost.
 1. `App.tsx` calls
     1. Character Preview: `generateTTS` with `options.textCharCount: previewText.length`
     2. `handleGenerateSnippetAsync` with `options.textCharCount: targetSnippets.map(s => {s.text.trim();}).join('\n').length;`
@@ -162,7 +165,7 @@ Possible causes:
 - [x] Speaker previewing
 - [x] Each snippet and chapter displays the cumulative number of characters, words, and approximate request token count.
 - [x] Auto-focus currently playing snippet (add settings toggle)
-- [-] (If necessary) More performant rendering, culling off-screen elements until they're within a certain range of the client area.
+- [x] (If necessary) More performant rendering, culling off-screen elements until they're within a certain range of the client area.
 
 ### Command Registry
 - [ ] Implement a command registry for each discrete UI action to handle keyboard shortcuts and other commands, similar to VS Code
@@ -538,6 +541,22 @@ await main();
   - [ ] Flagging snippets when they likely won't generate -- the Vertex API or Gemini models *really* do not like snippets under a certain length, that only contain sounds like [cough] [snort] [laugh] etc., or certain words together like "young girl", anything that even *vaguely* indicates CSAM which it's over-zealous about. and in my experience, these tend to get rejected with Reason: "Other" which is *really* fucking annoying, like just say "Safety" ffs.
   - [ ] It doesn't account for context imo, like: "At 25, Stacy could be considered a young girl relative to her 41-year-old girlfriend Kate." would likely get rejected, so I often replace "girl" with "lady" or "woman" which is ridiculous. "Child" or "Teen" or ages < 18 I could understand, but if "girl" indicates youth more than "woman," then "young girl" is redundant anyway.
   - [ ] Through logging requests that come back with a rejection or error, analysis could be done on the content to find most-used words and to try to build some correlation to predict what the API is going to reject even with safety settings turned off, and this could then be used to provide a warning on snippets containing these word combinations along with suggestions on how to change them, perhaps even fixed automatically when pressing a button, kind of like Code Actions.
+
+## Misc.
+
+```md
+excellent, everything seems to be working well -- although I haven't tried the sheets logging yet as I'm accessing it straight from my desktop like http://hostname:3000 and despite adding that to Firebase it still says unrecognized domain. guess I should try hostname.attlocal.net or whatever the gateway sets as the local domain.
+
+I'm still not really used to this web testing and debugging stuff so I'm not even connected to the DAP (it's running in dev mode in VS Code on my desktop), and I'm using Zed on my tablet because VS Code gets too laggy with a meager 8GB of ram, and I still don't quite understand the remote tunnel mode, like I'm accessing the same files either way -- the repo is on my OneDrive so the changes get populated both ways without needing to commit... but I should commit to the damn github on each version, at least, huh.
+
+Alright, as a test, let's see... I have a chapter with 133 snippets. typing is *mostly* okay but it hitches every dozen or so characters. Nothing like before, though, where there would be like, a 2-3s delay between chunks of characters drawing. INP shows 944ms. typed some more, got 705ms. so <1s at least. if there's a better test I could do, or connect to the debugger and enable some... thing? (I'm a bedouin in a sandstorm here)
+
+wee, I made a fix myself. the Importing Audio Sidecar dialogue has a spinning icon that had a visible square background before, so I set it to bg-transparent, and now it's perfect: [@Image](zed:///agent/pasted-image?name=Image) .
+
+oh, regarding `react-textarea-code-editor`, I was looking around at lightweight color-able text editors to eventually use in snippets, just for a few small markdown things, italicizing *emphasis* and bolding **strong** as well as `<inline>` `[directions]` (3.8 and 3.1 style). also, for the prompt editor in the settings dialogue and the assembled prompt display, which is... not ideal right now lol. it just styles text manually based on some *very* simple rules: [@renderMarkdownPreview](file:///C:/Users/tma2/OneDrive/Source/audiobook-studio/src/components/SettingsDialogue.tsx?symbol=renderMarkdownPreview#L410:444) so having a small react-md-editor or something might be nice, although when Gemini 3.8 is implemented, instructions will be more atomized -- each speaker will be created pre-hoc with a voice_id (although you can still send speaker instructions in the request, I think), and each line in the multi-speaker request can have instructions attached to it, as well, which will necessitate a change to the snippet UI and a "style" field or something to each Content item in the project file.
+
+I dunno... forced alignment or Gemini 3.8 first?
+```
 
 ## Refs
 

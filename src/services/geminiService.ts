@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {Speaker, InteractionsMimeType} from "../types";
+import { Speaker, InteractionsMimeType, ModelId } from "../types";
 
 export interface TTSResult {
   data: string;
@@ -23,7 +23,7 @@ export async function generateTTS(
   text: string, 
   voiceName: string,
   styleInstruction: string | undefined, 
-  modelId: string,
+  modelId: ModelId | string,
   options?: {
     // NOTE: the Interactions API only supports Gemini 3.1 Flash TTS, not any of the 2.5 models, so there should probably be a chcek in the interface that if Interactions is selected, it forces 3.1 and disables the control
     useInteractionsAPI?: boolean | false;
@@ -86,7 +86,7 @@ export async function generateTTS(
       throw new Error(result.error || "Failed to generate text-to-speech audio.");
     }
 
-    return { 
+    return {
       data: result.audioData, 
       mimeType: result.mimeType || "audio/pcm",
       responseTime: result.responseTime,

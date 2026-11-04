@@ -187,7 +187,7 @@ app.post("/api/tts/generate", async (req, res) => {
     return res.status(400).json({ error: "Missing required parameters: text and speaker (or speakers array) are mandatory." });
   }
 
-  let selectedModel = model || "gemini-3.1-flash-tts-preview";
+  let selectedModel: string = model || "gemini-3.1-flash-tts-preview";
   
   // Define style directions based on settings
   const styleNotes: string[] = [];

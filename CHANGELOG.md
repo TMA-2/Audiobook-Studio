@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-10-28
+
+### Fixed
+- `/api/tts/generate` rejected requests with "model is required and must be a string". Project files store `settings.model` as a `ModelOption` object (`{ id, name, description }`), but call sites in `App.tsx` passed it unchanged instead of `.id`. The call sites regressed after 0.13.1; the stored format did not change.
+
+### Added
+- `resolveModelId()` in `src/utils/modelId.ts` returns the id from either a `ModelOption` object or a string. `Project.settings.model` is typed `ModelOption | ModelId | string`. Used for preview, single-snippet and bulk generation, and imported speaker generations.
+
 ## [0.13.2] - 2026-10-27
 
 ### Fixed
@@ -126,8 +134,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Unified prompt compilation across TTS execution and Settings prompt preview by making `compilePrompt` in `src/utils/promptCompiler.ts` the single source of truth.
+  - Details: `{snippet_text}` prompt compilation in `SettingsDialogue.tsx` prioritizes active snippet selections across chapters and prevents fallback leakage of unselected chapter snippets.
 - Fixed multi-speaker template interpolation issue where secondary speaker blocks were missing replaced `{speaker_role}`, `{speaker_voice}`, and `{speaker_instructions}` variables.
 - Implemented mode-aware prompt preview selection logic in `compilePrompt` (`individual` mode: selected snippet -> focused snippet -> first snippet of active chapter; `combined` mode: selected snippets -> first scene assigned snippets -> first 10 snippets).
+  - Details: Multi-speaker prompt block concatenation in `promptCompiler.ts` and `SettingsDialogue.tsx` dynamically duplicates `{speaker_name}` blocks for all unique speakers in selected snippets, and`handleBulkGenerate` to executes combined multi-speaker generation when multiple snippets or `generationOption: 'combined'` is set.
 - Fixed scene section rendering logic in prompt preview to omit scene header block when no active scene is assigned to selected/focused snippets.
 
 ### Added
@@ -139,9 +149,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Verified and refined server-side Interactions API handling in `server.ts` with correct variable scoping and parameter passing for `previous_interaction_id`, `speech_config`, and `response_format`.
 
-### Fixed
-- Fixed `{snippet_text}` prompt compilation in `SettingsDialogue.tsx` to prioritize active snippet selections across chapters and prevent fallback leakage of unselected chapter snippets.
-- Fixed multi-speaker prompt block concatenation in `promptCompiler.ts` and `SettingsDialogue.tsx` to dynamically duplicate `{speaker_name}` blocks for all unique speakers in selected snippets, and updated `handleBulkGenerate` to execute combined multi-speaker generation when multiple snippets or `generationOption: 'combined'` is selected.
 
 ## [0.8.3] - 2026-07-23
 
@@ -201,7 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integrated `getGenerationValidationState` dynamically into the "Generate Selected" bulk action button, auto-disabling the button and displaying descriptive validation warning tooltips (e.g., character limit or multi-speaker capacity warnings) on hover.
 - `types.ts` added type `InteractionsMimeType` supported audio formats for the Interactions API
 - `server.ts` added interactionsAPI placeholder to tts/generate api req
-- `geminiService.ts` added interactionsAPI placeholder to tts/generate api call 
+- `geminiService.ts` added interactionsAPI placeholder to tts/generate api call
 - `markdownParser.ts` added optional `stripQuotes: boolean` parameter to parseMarkdown to determine whether or not to strip surrounding quotes from speaking lines. it's sometimes useful to keep them when they're part of one block with both narration and speech for the character
 
 ### Changed
@@ -221,7 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Renamed `PromptSchema-SingleSpeaker.md` to `Gemini Recommended Example Request.md`
 - Renamed `GeminiExample.md` to `Request Template.md`
-- `GEMINI.md`: Modified and clarified a lot regarding separate request/change and bug fix processes as well as some other details herea and there. No more updating `TODO.md` -- the files in the NOTES (should probably rename it PLANS huh?) folder will be the source of truth going forward in terms of concrete changes. they'll essentially be a "closed list" where `TODO.md` will be an "open list" that only I update with my harebrained ideas that get checked off as they're requested, worked on, and completed little by little.
+- `GEMINI.md`: Modified and clarified a lot regarding separate request/change and bug fix processes as well as some other details herea and there. No more updating `TODO.md` -- the files in the NOTES (should probably rename it PLANS huh?) folder will be the source of truth going forward in terms of concrete changes. they'll essentially be a "closed list" where `TODO.md` will be an "open list" that only I update with my harebrained ideas that get checked off as they're completed little by little.
 - `TODO.md`: and naturally I've added more uh... "ambitious" ideas lol.
 
 ## [0.5.3] - 2026-07-18

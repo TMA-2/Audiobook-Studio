@@ -20,6 +20,9 @@ MD013:                # line-length
 MD022:                # blanks-around-headings
   lines_above: 1
   lines_below: 0
+MD024:                # no-duplicate-heading
+  siblings_only: true
+  severity: warning
 MD031: false          # blanks-around-fences
 MD032: false          # blanks-around-lists
 MD033: true           # no-inline-html

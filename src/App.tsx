@@ -65,6 +65,7 @@ import { getGenerationValidationState } from "./utils/generationValidator";
 import { compilePrompt } from "./utils/promptCompiler";
 import { computeRawTextStats } from "./utils/textStats";
 import { createDebouncer } from "./utils/debouncer";
+import { resolveModelId } from "./utils/modelId";
 import { exportSidecarStream } from "./utils/sidecarExporter";
 import { groupSnippetsByGeneration, GenerationGroup } from "./utils/generationGrouping";
 import { UserPreferences, INITIAL_PROJECT } from "./types";
@@ -473,7 +474,7 @@ export default function App() {
                     snippetId: snippet.id,
                     speakerId: sg.speakerId || snippet.speakerId || null,
                     timestamp: sg.timestamp || new Date().toISOString(),
-                    model: sg.model || prev.settings.model || "gemini-3.1-flash-tts-preview",
+                    model: sg.model || resolveModelId(prev.settings.model) || "gemini-3.1-flash-tts-preview",
                     text: sg.text || snippet.text,
                     audioMimeType: sg.audioMimeType || 'audio/wav',
                     duration: sg.duration
@@ -958,7 +959,7 @@ export default function App() {
           previewText,
           speaker.voice,
           combinedStyle,
-          project.settings.model,
+          resolveModelId(project.settings.model),
           {
             textCharCount: previewText.length,
             textWordCount: previewText.split(/\s+/g).length,
@@ -1109,7 +1110,7 @@ export default function App() {
         snippetsOverride: [snippet]
       });
 
-      const modelId = project.settings.model;
+      const modelId = resolveModelId(project.settings.model);
       const combinedStyle = getCombinedStyleInstructions(speaker);
       
       // get raw snippet text counts and number of snippets
@@ -1435,7 +1436,7 @@ export default function App() {
       // 7. Format and interpolate transcript
       const { chars: textChars, words: textWords } = computeRawTextStats(selectedSnippets);
 
-      const modelId = project.settings.model;
+      const modelId = resolveModelId(project.settings.model);
       const primaryVoice = uniqueSpeakers[0]?.voice || "Puck";
       const ttsResult = await generateTTS(prompt, primaryVoice, undefined, modelId, {
         speakers: uniqueSpeakers.map((sp) => ({ name: sp.name || "Narrator", voice: sp.voice || "Puck" })),

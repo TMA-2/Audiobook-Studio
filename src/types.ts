@@ -311,26 +311,20 @@ export interface ModelOption {
   supportsInteractionsAPI: boolean;
 }
 
-export type ModelName =
-  | "gemini-3.8-flash-tts"
-  | "gemini-3.8-flash-lite-tts"
-  | "gemini-3.1-flash-tts-preview"
-  | "gemini-2.5-flash-tts"
-  | "gemini-2.5-pro-tts"
-  | "gemini-2.5-flash-lite-preview-tts";
-
 export const GEMINI_MODELS: ModelOption[] = [
   {
     id: "gemini-3.8-flash-tts",
-    name: "Gemini 3.8 Flash TTS (Preview)",
-    description: "Primary high-quality TTS model",
+    name: "Gemini 3.8 Flash TTS",
+    description:
+      "Newest flagship multi-modal TTS model which supports per-turn directions and persistent user-created voices.",
     deprecated: false,
     supportsInteractionsAPI: true,
   },
   {
     id: "gemini-3.8-flash-lite-tts",
-    name: "Gemini 3.1 Flash-Lite TTS",
-    description: "Primary high-quality TTS model",
+    name: "Gemini 3.8 Flash-Lite TTS",
+    description:
+      "Lite version of the newest multi-modal TTS model which supports per-turn directions and persistent user-created voices, with lower latency.",
     deprecated: false,
     supportsInteractionsAPI: true,
   },
@@ -364,13 +358,23 @@ export const GEMINI_MODELS: ModelOption[] = [
   },
 ];
 
+export type ModelName =
+  | "gemini-3.8-flash-tts"
+  | "gemini-3.8-flash-lite-tts"
+  | "gemini-3.1-flash-tts-preview"
+  | "gemini-2.5-flash-tts"
+  | "gemini-2.5-pro-tts"
+  | "gemini-2.5-flash-lite-preview-tts";
+
+export type ModelId = (typeof GEMINI_MODELS)[number]["id"];
+
 // TODO: This will obviously need an optional voice_id... or else a new VoiceProfile interface will be needed which Speakers can optionally use in place of other settings. TBD.
 export interface Speaker {
   id: string;
   name: string;
   isNarrator: boolean;
   voice: VoiceName | string;
-  model?: ModelOption; // gemini-3.1-flash-tts-preview, gemini-2.5-flash-tts, gemini-2.5-pro-tts, etc.
+  model?: ModelOption; // gemini-3.8-flash-tts, gemini-3.1-flash-tts-preview, etc.
   pacing?: 'slow' | 'normal' | 'fast' | string;
   pitch?: 'low' | 'normal' | 'high' | string;
   emotion?: string; // 'none', 'laughing', 'sad', 'excited', 'whispering', 'shouting', 'nominous', 'gasping'
@@ -470,7 +474,7 @@ export interface Project {
   // New properties
   title: string;
   settings: {
-    model: ModelName;
+    model: ModelOption | ModelId | string;
     encoding: AudioEncoding;
     sampleRate: string;
     // Track 1 additional settings
