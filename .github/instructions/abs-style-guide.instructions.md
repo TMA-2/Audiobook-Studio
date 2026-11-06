@@ -1,5 +1,25 @@
 # Audiobook Studio Agent Rules
 
+## References
+
+> [!note] Gemini Docs
+> All the markdown documentation links reference the Interactions API for code samples. The generateContent version of the page can be accessed via its normal URL with the var `generate-content=true`, e.g. `https://aistudio.google.com/docs/voice-design?generate-content=true` as well as showing Javascript examples by default with `codelanguage=javascript`.
+
+I'll add the Gemini 3.1 Flash TTS Preview documentation when I can find out where the fuck it went lol.
+
+- [@google/genai Interactions](https://googleapis.github.io/js-genai/release_docs/classes/gaos_google-genai.GeminiNextGenInteractions.html): The actual Gemini Interactions API reference for the `@google/genai` npm package.
+- [Gemini 3.8 Flash TTS](https://aistudio.google.com/docs/models/gemini-3.8-flash-tts.md): Learn about the Gemini 3.8 Flash TTS model from Google, including when to use it and how to migrate from earlier TTS models.
+- [Gemini 3.8 Flash-Lite TTS](https://aistudio.google.com/docs/models/gemini-3.8-flash-lite-tts.md): Learn about the Gemini 3.8 Flash-Lite TTS model from Google, including when to use it and how to migrate from earlier TTS models.
+- [Voice Design](https://aistudio.google.com/docs/voice-design.md): How to create persistent voices, which will be attached to speakers for 3.8.
+- [Voice Remixing](https://aistudio.google.com/docs/voice-remixing.md): Voices can be remixed by modifying existing ones and adding new instructions.
+- [Gemini Voices API](https://aistudio.google.com/api-reference/voices.md)
+  - [List Voices](https://aistudio.google.com/api-reference/voices/list-voices.md): List available voices, filtered by a number of fields.
+  - [Create Voices](https://aistudio.google.com/api-reference/voices/create-voice.md): Create a new voice. We'll use this plenty.
+  - [Get Voice](https://aistudio.google.com/api-reference/voices/get-voice.md): Get an existing voice. We'll need this to verify a given `voice_id` exists.
+  - [Delete Voice](https://aistudio.google.com/api-reference/voices/delete-voice.md): To delete voices when they're no longer needed.
+- [Gemini Docs MCP server](https://gemini-api-docs-mcp.dev): Model Context Protocol server providing live documentation search. This should hopefully already be available.
+- [Batch API](https://aistudio.google.com/api-reference/batch-api.md): For future usage to generate entire chapters or projects at once.
+
 ## Code Preferences
 
 > This is definitely not comprehensive, and I don't know what ESlint / Typescript / best practices should go in, so this is a best guess coming from a PowerShell guy.
@@ -39,7 +59,7 @@
 7. Do the thing and make the test go brrrrrrrrrr
 8. As each discrete step is implemented and the test passes, mark it as complete in the plan and update that section of the plan document with the date and new version. The plan documents should be the **source of truth**, with the changelog and anything else downstream.
 9. Update [**CHANGELOG.md**](#changelog-style) with the above information under add, remove, change, fix, deprecate, security, using [KeepAChangeLog style](https://keepachangelog.com).
-  a. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. We'll stay in major version 0 for a while, so don't increment it until it's stable enough for someone other than myself to use it. Bump minor version with each new feature committed, and patch version with each bug fix.
+  a. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. Bump the major version only when it's a large change that potentially breaks or affects backwards compatibility. Bump minor version with each new feature or change committed, and patch version with each bug fix. Add a label like 'alpha' or 'testing' or something TBD until I've decided it's stable enough for someone else to use.
   b. Update **package.json** and anything else relevant (like dependencies) when the version is bumped.
 9. Return to **#5** and loop until the plan is finished (or something goes terribly wrong and we need to revert to a checkpoint and re-plan)
 10. When the plan is fully complete, rename the plan file like so: `<start_version>-<end_version>-PLAN_NAME.md`
@@ -148,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] feature / change / bugfix / etc. (build version bump)
 
 ### Major Feature under category
-> We'll be at major version 0 for a while. Increment the minor version for added features, `0.4.0` -> `0.5.0`. Bug fixes should bump the build number.
+> The major version can be bumped, but we'll be under an 'alpha' label or thereabouts, e.g. `1.8.4-alpha`. Increment the major version when a change or new feature potentially breaks compatibility with older versions. Increment the minor version for changes and added features, `0.4.0` -> `0.5.0`. Bug fixes should bump the patch/build number, `0.4.0` -> `0.4.1`.
 
 - [ ] Implement major feature part 1
 - [ ] Implement major feature part 2

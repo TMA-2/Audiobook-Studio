@@ -40,7 +40,7 @@
 7. Do the thing and make the test go brrrrrrrrrr
 8. As each discrete step is implemented and the test passes, mark it as complete in the plan and update that section of the plan document with the date and new version. The plan documents should be the **source of truth**, with the changelog and anything else downstream.
 9. Update [**CHANGELOG.md**](#changelog-style) with the above information under add, remove, change, fix, deprecate, security, using [KeepAChangeLog style](https://keepachangelog.com).
-   1. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. We'll stay in major version 0 for a while, so don't increment it until it's stable enough for someone other than myself to use it. Bump minor version with each new feature committed, and patch version with each bug fix.
+   1. Version using [SemVer](https://semver.org/) standards, starting with `0.1.0`. Bump the major version only when it's a large change that potentially breaks or affects backwards compatibility. Bump minor version with each new feature or change committed, and patch version with each bug fix. Add a label like 'alpha' or 'testing' or something TBD until I've decided it's stable enough for someone else to use.
    2. Update **package.json** and anything else relevant (like dependencies) when the version is bumped.
 10. Return to **#5** and loop until the plan is finished (or something goes terribly wrong and we need to revert to a checkpoint and re-plan)
 11. When the plan is fully complete, rename the plan file like so: `<start_version>-<end_version>-PLAN_NAME.md`
@@ -149,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] feature / change / bugfix / etc. (build version bump)
 
 ### Major Feature under category
-> We'll be at major version 0 for a while. Increment the minor version for added features, `0.4.0` -> `0.5.0`. Bug fixes should bump the build number.
+> Increment major version for compatibility breaking additions and changes. Increment the minor version for added features, `0.4.0` -> `0.5.0`. Bug fixes should bump the build number.
 
 - [ ] Implement major feature part 1
 - [ ] Implement major feature part 2
