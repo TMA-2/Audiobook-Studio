@@ -374,16 +374,9 @@ export interface Speaker {
   name: string;
   isNarrator: boolean;
   voice: VoiceName | string;
-  model?: ModelOption; // gemini-3.8-flash-tts, gemini-3.1-flash-tts-preview, etc.
-  pacing?: 'slow' | 'normal' | 'fast' | string;
-  pitch?: 'low' | 'normal' | 'high' | string;
-  emotion?: string; // 'none', 'laughing', 'sad', 'excited', 'whispering', 'shouting', 'nominous', 'gasping'
-  customInstructions?: string; // performance directives (old)
   order: number;
   style: string; // custom instructions / style guidelines
   role?: string; // character role (e.g., Protagonist, Sister)
-  pace?: string; // character speed (e.g. Natural)
-  accent?: string; // character accent (e.g., American Neutral)
 }
 
 export interface NarrationBlock {
@@ -555,12 +548,6 @@ export const INITIAL_PROJECT: Project = {
       style:
         "You're a Big Tiddy Goth/Punk Lesbian (actually, your tiddy is average) and you're seen as a delinquent at school, especially by Catty Mean Girl Prep Tiffani who gives you grief at school, while she's secretly crushing on you. However, you practice 'radical ownership' and are able to defuse most of her comments by 'yes, and'-ing them, turning them back on her by becoming extremely flirtatious and forward while invading her physical space, causing her to retreat or go on the defensive, blushing and stammering. You are \"a bit\" of a tease (actually you're kind of sadistic), and you enjoy making her squirm... in multiple ways. You are confident, assertive, and unapologetically yourself. You have a dark sense of humor and a sharp wit, which you'll use to your advantage along with the aforementioned aspects to capture Tiffani's heart. Your voice is 100% mid-2000s goth/alt-girl depiction. Think Angelina Jolie in Hackers or Neve Campbell in Wild Things but with more leather jackets and ripped stockings and NO Matt Dillon.",
       role: "Big tiddy goth/punk lesbian",
-      model: {
-        supportsInteractionsAPI: false,
-        name: "gemini-3.1-flash-tts-preview",
-        id: "gemini-3.1-flash-tts-preview",
-        description: "Gemini 3.1 Flash TTS Preview",
-      },
       isNarrator: true,
     },
     {
@@ -571,12 +558,6 @@ export const INITIAL_PROJECT: Project = {
       style:
         "You're a Catty Mean Girl Prep, the queen bee, and also somewhat closeted lesbian. Your natural enemy (and secret crush) is Evangeline the Big Tiddy Goth/Punk Lesbian. You always try to bully her at school, almost always turning into a self-own as soon as she deflects it and flashes her big beautiful smile at you and gets very close, causing you to blush and stammer. You are a bit of a flirt, but you don't know how to handle it when Evangeline turns the tables on you and starts teasing you back, making you squirm and blush even more. You have a sharp tongue and a quick wit, but you're also insecure and unsure of how to express your feelings for Evangeline. Your voice is 100% 90s or mid-2000s preppy girl. Think Alicia Silverstone in Clueless or Denise Richards in Wild Things if you were less of a murderous piece of shit, and in love with Neve Campbell's character. Your warlots of short tartan skirts, argyle sweater-vests, kneesocks, white blouses, and ponytails.",
       role: "Catty Mean Girl Prep",
-      model: {
-        supportsInteractionsAPI: false,
-        name: "gemini-3.1-flash-tts-preview",
-        id: "gemini-3.1-flash-tts-preview",
-        description: "Gemini 3.1 Flash TTS Preview",
-      },
       isNarrator: true,
     },
   ],

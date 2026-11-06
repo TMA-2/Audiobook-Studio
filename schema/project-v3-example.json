@@ -1,0 +1,359 @@
+{
+  "$schema": "abs-project.schema.json",
+  "projectName": "Big Tiddy Goth Lesbians",
+  "settings": {
+    "model": {
+      "id": "gemini-3.1-flash-tts-preview",
+      "name": "Gemini 3.1 Flash TTS (Preview)",
+      "description": "Primary high-quality TTS model"
+    },
+    "temperature": 1.5,
+    "encoding": "M4A",
+    "sampleRate": 24000,
+    "promptTemplate": "# {project_title}\n## {chapter_title}\n\n## Speakers\n\n### {speaker_name}\n- Role: {speaker_role}\n- Voice: {speaker_voice}\n- Style: {speaker_instructions}\n\n## Scene Context: {scene_name}\n{scene_context}\n\n## TRANSCRIPT\n{snippet_text}",
+    "generationOption": "combined"
+  },
+  "speakers": [
+    {
+      "id": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+      "order": 0,
+      "name": "Evangeline",
+      "voice": "Kore",
+      "instructions": "You're a Big Tiddy Goth/Punk Lesbian (actually, your tiddy is average) and you're seen as a delinquent at school, especially by Catty Mean Girl Prep Tiffani who gives you grief at school, while she's secretly crushing on you. However, you practice 'radical ownership' and are able to defuse most of her comments by 'yes, and'-ing them, turning them back on her by becoming extremely flirtatious and forward while invading her physical space, causing her to retreat or go on the defensive, blushing and stammering. You are \"a bit\" of a tease (actually you're kind of sadistic), and you enjoy making her squirm... in multiple ways. You are confident, assertive, and unapologetically yourself. You have a dark sense of humor and a sharp wit, which you'll use to your advantage along with the aforementioned aspects to capture Tiffani's heart. Your voice is 100% mid-2000s goth/alt-girl depiction. Think Angelina Jolie in Hackers or Neve Campbell in Wild Things but with more leather jackets and ripped stockings and NO Matt Dillon.",
+      "isNarrator": true
+    },
+    {
+      "id": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+      "order": 1,
+      "name": "Tiffani",
+      "voice": "Aoede",
+      "instructions": "You're a Catty Mean Girl Prep, the queen bee, and also somewhat closeted lesbian. Your natural enemy (and secret crush) is Evangeline the Big Tiddy Goth/Punk Lesbian. You always try to bully her at school, almost always turning into a self-own as soon as she deflects it and flashes her big beautiful smile at you and gets very close, causing you to blush and stammer. You are a bit of a flirt, but you don't know how to handle it when Evangeline turns the tables on you and starts teasing you back, making you squirm and blush even more. You have a sharp tongue and a quick wit, but you're also insecure and unsure of how to express your feelings for Evangeline. Your voice is 100% 90s or mid-2000s preppy girl. Think Alicia Silverstone in Clueless or Denise Richards in Wild Things if you were less of a murderous piece of shit, and in love with Neve Campbell's character. Your warlots of short tartan skirts, argyle sweater-vests, kneesocks, white blouses, and ponytails.",
+      "isNarrator": false
+    }
+  ],
+  "scenes": [
+    {
+      "id": "01a0adab-02b0-7292-8727-da86dc535627",
+      "name": "A Gothic Mansion",
+      "description": "Imagine a grand, old mansion perched atop a hill, shrouded in mist. The architecture is ornate, with towering spires and intricate stonework. The windows are tall and arched, some cracked and weathered by time. The front door is massive, made of dark wood with iron accents, slightly ajar as if inviting the brave to enter. The surrounding grounds are overgrown with wild ivy and twisted trees, their branches reaching out like skeletal fingers. A faint light flickers from within, casting eerie shadows that dance across the foggy landscape. The air is thick with the scent of damp earth and the distant sound of thunder echoes through the night.\nInside, a 'bad girl' goth lesbian and her preppy cheerleader classmate have been sent on a dare to explore it. The goth is less bothered by the surroundings and takes every opportunity to tease and flirt with the cheerleader, who is visibly nervous and on edge. The tension between them is palpable, with the goth's dark allure contrasting sharply against the cheerleader's bright and anxious demeanor. As they navigate the creaking hallways and shadowy corners, their interactions are charged with a mix of fear, excitement, and thick, sweaty sexual chemistry. Suddenly, they come across the master bedroom...",
+      "order": 0
+    }
+  ],
+  "chapters": [
+    {
+      "id": "c1d2e3f4-5678-90ab-cdef-1234567890ab",
+      "name": "Chapter 1",
+      "order": 0,
+      "globalSpeaker": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+      "collapsed": false,
+      "content": [
+        {
+          "id": "7ca2642b-6615-4f86-956e-ef2a523a0f85",
+          "speaker": null,
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 0,
+          "collapsed": false,
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "text": [
+            "It was a dark and stormy night."
+          ],
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "7ca2642b-6615-4f86-956e-ef2a523a0f85",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "It was a dark and stormy night.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "7ca2642b-6615-4f86-956e-ef2a523a0f85",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "It was a dark and stormy night.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "66647e2d-fb6f-41d4-89db-d7add2aa9835",
+          "speaker": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 1,
+          "collapsed": false,
+          "text": [
+            "Shut up you big dyke, like, that's such a mid opening lol"
+          ],
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "66647e2d-fb6f-41d4-89db-d7add2aa9835",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Shut up you big dyke, like, that's such a mid opening lol",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "66647e2d-fb6f-41d4-89db-d7add2aa9835",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Shut up you big dyke, like, that's such a mid opening lol",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "41e51f92-b3fc-43ed-9084-c90e21909b5d",
+          "speaker": null,
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 2,
+          "collapsed": false,
+          "text": [
+            "Then I suppose you'd like to come up with a better one? Also, I bet your \"opening\" is totally mid as well. [salacious] But I'd have to see it, first~"
+          ],
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "41e51f92-b3fc-43ed-9084-c90e21909b5d",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Then I suppose you'd like to come up with a better one? Also, I bet your \"opening\" is totally mid as well. [salacious] But I'd have to see it, first~",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "41e51f92-b3fc-43ed-9084-c90e21909b5d",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Then I suppose you'd like to come up with a better one? Also, I bet your \"opening\" is totally mid as well. But I'd have to see it first...",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "870ddea6-fc4f-4e2d-8564-17833a1313d2",
+          "speaker": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 3,
+          "collapsed": false,
+          "text": [
+            "OMG, shut *up*, [mock-offended] hehe, that's sooo grody, [simpering] you don't get to see my *opening*, lezbo!!"
+          ],
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "870ddea6-fc4f-4e2d-8564-17833a1313d2",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "OMG, shut *up*, [mock-offended] hehe, that's sooo grody, [simpering] you don't get to see my *opening*, lezbo!!",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "870ddea6-fc4f-4e2d-8564-17833a1313d2",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "OMG, shut *up*, hehe, that's sooo grody, you don't get to see my opening, lezbo!!",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "482dc8a4-8d57-465a-89fa-2e39e603a2ed",
+          "speaker": null,
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 4,
+          "collapsed": false,
+          "text": [
+            "Too bad. I guess I'll just leave, then."
+          ],
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "482dc8a4-8d57-465a-89fa-2e39e603a2ed",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Too bad. I guess I'll just leave, then.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "482dc8a4-8d57-465a-89fa-2e39e603a2ed",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Too bad. I guess I'll just leave, then.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "e8dc9d25-05a1-4ea3-bf8e-00e66748b453",
+          "speaker": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 5,
+          "collapsed": false,
+          "text": [
+            "[shouting] NOO, don't leave me here in this big scary mansion you IDIOT! [fake-crying] I'm scaaaaaaaaared~~ Evaaaaa~!!"
+          ],
+          "activeGenerationId": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+          "generations": [
+            {
+              "id": "f48c0687-8915-4b47-85bc-7e89850d23a3",
+              "snippetId": "e8dc9d25-05a1-4ea3-bf8e-00e66748b453",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:26:28.796Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "[shouting] NOO, don't leave me here in this big scary mansion you IDIOT! [fake-crying] I'm scaaaaaaaaared~~ Evaaaaa~!!",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 46.8,
+              "temperature": 1.5
+            },
+            {
+              "id": "4f3d5f11-c2bb-4a61-8a99-66c9e208216c",
+              "snippetId": "e8dc9d25-05a1-4ea3-bf8e-00e66748b453",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:11:19.753Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "NOO, don't leave me here in this big scary mansion you IDIOT! I'm scaaaaaaaaared~~ Eva~!!",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 40.52,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "604d3385-dd7d-4e84-a800-253450a2df64",
+          "speaker": null,
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 6,
+          "collapsed": false,
+          "text": [
+            "God, you're impossible. Fine, I'll stay, just because I'd hate for there to be one less preppy brat for me to deflower."
+          ],
+          "activeGenerationId": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+          "generations": [
+            {
+              "id": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+              "snippetId": "604d3385-dd7d-4e84-a800-253450a2df64",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:25:58.525Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "God, you're impossible. Fine, I'll stay, just because I'd hate for there to be one less preppy brat for me to deflower.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 58.4,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "3207cba2-8001-4334-8be6-947575777f89",
+          "speaker": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 7,
+          "collapsed": false,
+          "text": [
+            "Hah, you're a little late for that!"
+          ],
+          "activeGenerationId": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+          "generations": [
+            {
+              "id": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+              "snippetId": "3207cba2-8001-4334-8be6-947575777f89",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:25:58.525Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "Hah, you're a little late for that!",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 58.4,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "019fd2a3-5798-4600-8f83-d35b878cbd58",
+          "speaker": null,
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 8,
+          "collapsed": false,
+          "text": [
+            "I don't mean your virginity, *obviously* that was a foregone conclusion, I mean \"deflower\" as in \"a goth lesbian fucks you until your legs give out and you're babbling and pissing yourself and ahegao-ing with lust, never to be satisfied by a man again\". *That* type of deflowering."
+          ],
+          "activeGenerationId": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+          "generations": [
+            {
+              "id": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+              "snippetId": "019fd2a3-5798-4600-8f83-d35b878cbd58",
+              "speakerId": "01a0adad-e9bc-7d72-b5d2-3b2e58c534f9",
+              "timestamp": "2026-09-18T16:25:58.525Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "I don't mean your virginity, *obviously* that was a foregone conclusion, I mean \"deflower\" as in \"a goth lesbian fucks you until your legs give out and you're babbling and pissing yourself and ahegao-ing with lust, never to be satisfied by a man again\". *That* type of deflowering.",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 58.4,
+              "temperature": 1.5
+            }
+          ]
+        },
+        {
+          "id": "15290d7b-a707-43a7-a337-d0a0552c4981",
+          "speaker": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+          "sceneId": "01a0adab-02b0-7292-8727-da86dc535627",
+          "order": 9,
+          "collapsed": false,
+          "text": [
+            "[stunned] O-Oh... [stammering] That... that kind, huh? Yeah well... uh... I'd like to see you try! [a beat] I MEAN I WOULDN'T!! YUCK! [another beat] I mean... [panting] just keep your hands to yourself, okay?! [under her breath] Damn, is she really that good?"
+          ],
+          "activeGenerationId": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+          "generations": [
+            {
+              "id": "2de95b3b-e5e3-4f10-a6ff-0ab9fad51383",
+              "snippetId": "15290d7b-a707-43a7-a337-d0a0552c4981",
+              "speakerId": "01a0b1f3-5998-7313-8cff-72836b7524e7",
+              "timestamp": "2026-09-18T16:25:58.525Z",
+              "model": "gemini-3.1-flash-tts-preview",
+              "text": "[stunned] O-Oh... [stammering] That... that kind, huh? Yeah well... uh... I'd like to see you try! [a beat] I MEAN I WOULDN'T!! YUCK! [another beat] I mean... [panting] just keep your hands to yourself, okay?! [under her breath] Damn, is she really that good?",
+              "audioMimeType": "audio/l16; rate=24000; channels=1",
+              "duration": 58.4,
+              "temperature": 1.5
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

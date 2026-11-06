@@ -18,28 +18,25 @@
 
 ## Rough Roadmap
 
-### 0.13.2
-- [o] Fix the [[TODO#Snippet Editor|input lag issue]] in the snippet editor.
-- [o] Sheets logging is overwriting the same row continuously. Not sure why, given it's not having to check the last row written and then write to that index+1, it's just using the `append` method of the API. something's up, though, because it *has* logged many times, but looking at the edit history for the last few days, it continually writes to one row, so it's... stuck or something
+### Patches
+- [ ] Sheets service should try to authenticate when the app loads. Typically it'll just pop up a login box that disappears after two seconds and that's it. Or, if there's a way to tell when the token has expired, to automatically re-authenticate (possibly opening the window such that it doesn't steal focus, like a "pop-under")
+- [x] Fix the [[TODO#Snippet Editor|input lag issue]] in the snippet editor.
+- [x] Sheets logging is overwriting the same row continuously. Not sure why, given it's not having to check the last row written and then write to that index+1, it's just using the `append` method of the API. something's up, though, because it *has* logged many times, but looking at the edit history for the last few days, it continually writes to one row, so it's... stuck or something
 - [x] Fix [[TODO#FIX THE GOD DAMN RAW CHARACTER COUNT LOGGING ALREADY|this stupid raw char/word count bug]].
 - [x] Fix the chapter header `Prompt Chars`, `Prompt Words`, and `Overhead` counts. Overhead is just the difference between raw characters and formatted prompt characters though, so it should always be a positive value. Regarding what it counts: add up the selected snippets if selection, otherwise the chapter's snippets.
 - [x] [[TODO#getAudioDuration error|Two constant errors]] are being caused by `getAudioDuration()`, and I have no idea why. I assume it has something to do with promise/response timing or debounce or some shit.
 
-### 0.13.2 -> 1.13.0
-- [ ] Implement the new [[TODO#Project Configuration / Schema|ABS project format]]
-  - [ ] This means `project.audio.json` sidecars will go away, *however* at least the loading support needs to stay so they can be opened and then saved to the new format
-
-### 0.13.2 -> 0.14.2
-- [ ] Implement [[TODO#Architecture|forced alignment]] feature. Woo hoo.
+### Feature Additions
 - [ ] Implement Gemini 3.8 Flash TTS support, which will require some workflow changes
   - [ ] See: Migration Guide [[TODO#API Features / Backend|API Changes]]
 > This will require some amount of re-design of the prompt template, obviously, as well as speaker handling, prompt template design, how best to handle generations (i.e. number of speakers, longer or shorter, separating requests by mood/emotion or delivery, etc.), and more.
 - [ ] Handle speakers now that they can be defined with a persistent `voice_id` to use in subsequent requests, along with short ad-hoc style instructions on top of temporal `<direction>` tags
 - [ ] If the texarea can get styled with some simple syntax highlighting, "Interjections" from the other speaker using `|<line to speak>|` in the middle of a snippet should absolutely be included, e.g.: `"I really liked this movie, |Oh, yeah?| I thought it was great! |I have to disagree...|"`.
   - In my playground testing, they don't really speak *over* reach other, and the interjection was sometimes just flat ignored, but it's a cool way to insert little ad-libs and whatnot which don't require a whole separate snippet from that character just saying "Oh" or something.
+- [ ] Implement [[TODO#Architecture|forced alignment]] feature. Woo hoo.
+  - [ ] Some schema additions will be needed, of course. Reference [[TODO#Gemini 3.8 Implementation]] for details.
 
 ## Bugs
-- [ ] Sheets service should try to authenticate when the app loads. Typically it'll just pop up a login box that disappears after two seconds and that's it. Or, if there's a way to tell when the token has expired, to automatically re-authenticate (possibly opening the window such that it doesn't steal focus, like a "pop-under")
 
 ### Snippet editing lag
 - [x] Fix text editing (and UI reactivity, I think) delay. Seems to be pretty directly correlated to the number of snippets in the chapter.
@@ -244,18 +241,22 @@ Possible causes:
 - [ ] Cumulative tokens used for the project (perhaps saved in the project file), possibly with a price estimate or whatever.
 
 ### Project Configuration / Schema
-- [ ] Create new .abs format and start using it.
-- [ ] Actually write the god damn schema for the project json.
 
 **MyAudiobook.abs**: zip archive using using compression *if* the generation contents are l16 or WAV, otherwise it should be set to `store` (i.e. no compression)
 - **project.json**: essentially the same as the current project format, except for the chapters.content.generations references.
 - **generations/**: a folder containing the generated audio data binaries, named by their unique ID, in whatever format they were generated in (L16, WAV, FLAC, etc.)
   - **f48c0687-8915-4b47-85bc-7e89850d23a3.mp3**: Audio file with the generation ID as its name. Multiple snippets may reference it, using start/end offsets once forced alignment is added
 
+#### 0.13.3 -> 1.13.0
+- [x] Implement the new **ABS project format**
+  - [x] This means `project.audio.json` sidecars will go away, *however* at least the loading support needs to stay so they can be opened and then saved to the new format
+- [x] Create new .abs format and start using it.
+- [x] Actually write the god damn schema for the project json.
+
 #### project.json Example
 
-> [!INFO]
-> Schema TBC
+> [!hint] ABS Project Schema
+> [schema/abs-project.schema.json](./schema/abs-project.schema.json)
 
 ```json
 {
@@ -568,8 +569,8 @@ I dunno... forced alignment or Gemini 3.8 first?
 [contextcaching]: https://ai.google.dev/gemini-api/docs/generate-content/caching "Context Caching in generateContent API"
 [promptSchema]: https://ai.google.dev/gemini-api/docs/generate-content/speech-generation#prompting-guide "Gemini prompting guide for generateContent API"
 [promptSchemaInteractions]: https://ai.google.dev/gemini-api/docs/speech-generation#prompting-guide "Gemini prompting guide for Interactions API"
-[batchapi]: https://ai.google.dev/gemini-api/docs/batch-api#javascript_1 "Gemini Batch Request API"
+[batchapi]: https://aistudio.google.com/docs/batch-api?codelanguage=javascript "Gemini Batch Request API"
 [streamingGenApi]: https://ai.google.dev/gemini-api/docs/generate-content/speech-generation#streaming "TTS Streaming generateContent API"
 [streamingIntApi]: https://ai.google.dev/gemini-api/docs/speech-generation#streaming "TTS Streaming Interactions API"
-[gemini38voicedesign]: https://ai.google.dev/gemini-api/docs/voice-design "Voice Design in Gemini 3.8 Flash TTS"
+[gemini38voicedesign]: https://ai.google.dev/gemini-api/docs/generate-content/voice-design "Voice Design in Gemini 3.8 Flash TTS"
 [outputformats]: https://ai.google.dev/gemini-api/docs/speech-generation#audio-output-formats "Gemini TTS Audio Encoding"

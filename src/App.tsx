@@ -54,7 +54,7 @@ import { generateTTS } from "./services/geminiService";
 import { playAudio, stopAudio, createWavBlob, getAudioDuration, concatenatePCMChunks } from "./services/audioService";
 import { generateId } from "./services/idService";
 import { parseMarkdown } from "./services/markdownParser";
-import { saveAudio, getAudio, deleteAudio } from "./services/dbService";
+import { saveAudio, saveAudioBlob, getAudio, getAudioBlob, deleteAudio } from "./services/dbService";
 import { parseSidecarStream, StreamingImportProgress } from "./utils/sidecarImporter";
 import { formatDuration, formatError, getSpeakerStyles } from "./services/utils";
 import * as StateModifiers from "./services/appStateModifiers";
@@ -66,9 +66,10 @@ import { compilePrompt } from "./utils/promptCompiler";
 import { computeRawTextStats } from "./utils/textStats";
 import { createDebouncer } from "./utils/debouncer";
 import { resolveModelId } from "./utils/modelId";
-import { exportSidecarStream } from "./utils/sidecarExporter";
+import { writeAbs, readAbs } from "./utils/absArchive";
 import { groupSnippetsByGeneration, GenerationGroup } from "./utils/generationGrouping";
 import { UserPreferences, INITIAL_PROJECT } from "./types";
+import { projectToFile, fileToProject, resolveSheetsLogging, collectGenerationIds } from './utils/projectFile';
 import { loadUserPreferences } from './services/preferenceService';
 import { createLogPayloadFromGeneration, logGenerationEvent } from './utils/generationLogger';
 
@@ -293,138 +294,103 @@ export default function App() {
   //#endregion
 
   //#region Project Export / Import
-  const handleExportProject = () => {
-    const exportData = {
-      projectName: project.title,
-      settings: project.settings,
-      speakers: project.speakers.map(s => ({
-        id: s.id,
-        order: s.order,
-        name: s.name,
-        voice: s.voice,
-        instructions: s.style,
-        isNarrator: s.isNarrator
-      })),
-      scenes: (project.scenes || []).map(s => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        order: s.order
-      })),
-      chapters: project.chapters.map((c, i) => ({
-        id: c.id,
-        name: c.title,
-        order: c.order,
-        globalSpeaker: c.defaultSpeakerId,
-        collapsed: c.isCollapsed,
-        content: c.snippets.map((s, j) => ({
-          id: s.id,
-          speaker: s.speakerId,
-          sceneId: s.sceneId,
-          order: s.order,
-          collapsed: s.isCollapsed,
-          text: s.text.split('\n'),
-          generations: s.generations,
-          activeGenerationId: s.activeGenerationId
-        }))
-      }))
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(project.title || 'project').replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportProject = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse(e.target?.result as string);
-        
-        const importedProject: Project = {
-          title: data.projectName || 'Imported Project',
-          settings: {
-            model: data.settings?.model || GEMINI_MODELS[0],
-            encoding: data.settings?.encoding || 'M4A',
-            sampleRate: data.settings?.sampleRate || '24000',
-            promptTemplate: data.settings?.promptTemplate || undefined
-          } as any,
-          speakers: (data.speakers || []).map((s: any, i: number) => ({
-            id: s.id || generateId(),
-            name: s.name || '',
-            order: s.order ?? i,
-            voice: s.voice || GEMINI_VOICES[0].id,
-            style: s.instructions || '',
-            isNarrator: !!s.isNarrator
-          })),
-          scenes: (data.scenes || []).map((s: any, i: number) => ({
-            id: s.id || generateId(),
-            name: s.name || '',
-            description: s.description || '',
-            order: s.order ?? i
-          })),
-          chapters: (data.chapters || []).map((c: any, i: number) => ({
-            id: c.id || generateId(),
-            title: c.name || 'Untitled Chapter',
-            order: c.order ?? i,
-            defaultSpeakerId: c.globalSpeaker || null,
-            isCollapsed: !!c.collapsed,
-            snippets: (c.content || []).map((s: any, j: number) => ({
-              id: s.id || generateId(),
-              text: Array.isArray(s.text) ? s.text.join('\n') : (s.text || ''),
-              speakerId: s.speaker || null,
-              sceneId: s.sceneId || null,
-              order: s.order ?? j,
-              status: s.activeGenerationId ? 'done' : 'idle',
-              generations: s.generations || [],
-              activeGenerationId: s.activeGenerationId || null,
-              isCollapsed: !!s.collapsed
-            }))
-          }))
-        };
-        
-        setProject(importedProject);
-        if (importedProject.chapters && importedProject.chapters.length > 0) {
-          setActiveChapterId(importedProject.chapters[0].id);
-        }
-      } catch (err) {
-        console.error(err);
-        alert("Failed to parse project file. Ensure it matches the correct JSON schema.");
-      }
-    };
-    reader.readAsText(file);
-    if (projectInputRef.current) projectInputRef.current.value = '';
-  };
-  //#endregion
-
-  //#region Sidecar Export / Import
-  const handleExportSidecar = async () => {
+  /**
+   * Saves the project as an .abs archive. Writes straight to disk when the browser offers a file picker,
+   * otherwise collects the chunks and downloads them.
+   */
+  const handleExportProject = async () => {
     setIsExportingSidecar(true);
-    setSidecarExportProgress("Preparing export...");
+    setSidecarExportProgress("Preparing...");
 
     try {
-      await exportSidecarStream(project, getAudio, (completed, total) => {
-        if (total > 0) {
-          setSidecarExportProgress(`${completed}/${total}`);
-        }
-      });
+      const ids = collectGenerationIds(project);
+      const fileName = `${(project.title || 'project').replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project'}.abs`;
+      let written = 0;
+      const getBlob = async (id: string) => {
+        const audio = await getAudioBlob(id);
+        setSidecarExportProgress(`${++written}/${ids.length}`);
+        return audio?.blob ?? null;
+      };
+
+      const picker = (window as any).showSaveFilePicker;
+      if (picker) {
+        const handle = await picker({ suggestedName: fileName, types: [{ description: 'Audiobook Studio project', accept: { 'application/zip': ['.abs'] } }] });
+        const writable = await handle.createWritable();
+        await writeAbs(projectToFile(project), ids, getBlob, (chunk) => writable.write(chunk));
+        await writable.close();
+      }
+      else {
+        const parts: Uint8Array[] = [];
+        await writeAbs(projectToFile(project), ids, getBlob, (chunk) => { parts.push(chunk); });
+        const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/zip' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     }
     catch (err: any) {
-      console.error("Sidecar export error:", err);
-      alert(`Failed to export audio sidecar: ${err?.message || err}`);
+      if (err?.name === 'AbortError') return;
+      console.error("Project save error:", err);
+      alert(`Failed to save project: ${err?.message || err}`);
     }
     finally {
       setIsExportingSidecar(false);
       setSidecarExportProgress(null);
     }
   };
+
+  /**
+   * Loads a project from an .abs archive (project and audio) or a v3 .json file (project only;
+   * load the .audio.json sidecar afterwards for audio).
+   * @param event The file input change event.
+   */
+  const handleImportProject = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      let data: any;
+      if (file.name.toLowerCase().endsWith('.abs')) {
+        setSidecarImportProgress({ bytesProcessed: 0, totalBytes: file.size, percent: 0, processedCount: 0 });
+        data = await readAbs(
+          file,
+          async (id, blob, mimeType) => {
+            await saveAudioBlob(id, blob, mimeType);
+          },
+          (bytesRead, totalBytes, audioCount) => {
+            setSidecarImportProgress({
+              bytesProcessed: bytesRead,
+              totalBytes,
+              percent: totalBytes > 0 ? Math.round((bytesRead / totalBytes) * 100) : 100,
+              processedCount: audioCount
+            });
+          }
+        );
+      }
+      else {
+        data = JSON.parse(await file.text());
+      }
+
+      const importedProject = fileToProject(data);
+      setProject(importedProject);
+      if (importedProject.chapters && importedProject.chapters.length > 0) {
+        setActiveChapterId(importedProject.chapters[0].id);
+      }
+    }
+    catch (err: any) {
+      console.error(err);
+      alert(`Failed to load project file: ${err?.message || err}`);
+    }
+    finally {
+      setSidecarImportProgress(null);
+      if (projectInputRef.current) projectInputRef.current.value = '';
+    }
+  };
+  //#endregion
+
+  //#region Sidecar Import (v3)
 
   const handleImportSidecar = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1152,7 +1118,8 @@ export default function App() {
       };
 
       // Trigger asynchronous Google Sheets generation telemetry logging if configured
-      if (userPreferences.sheetsLoggingEnabled && userPreferences.sheetsSpreadsheetId) {
+      const sheetsLogging = resolveSheetsLogging(project.settings, userPreferences);
+      if (sheetsLogging.sheetsLoggingEnabled && sheetsLogging.sheetsSpreadsheetId) {
         const snippetIndex = chapter.snippets.findIndex(s => s.id === snippetId);
         const approxSizeBytes = Math.round((data.length * 3) / 4);
         const payload = createLogPayloadFromGeneration({
@@ -1176,7 +1143,7 @@ export default function App() {
           responseTokens: ttsResult.responseTokens
         });
 
-        logGenerationEvent(payload, userPreferences).catch(err => {
+        logGenerationEvent(payload, sheetsLogging).catch(err => {
           console.warn("Async Sheets logging notification:", err);
         });
       }
@@ -1455,7 +1422,8 @@ export default function App() {
       await saveAudio(generationId, data, mimeType, duration);
 
       // Trigger asynchronous Google Sheets generation telemetry logging if configured
-      if (userPreferences.sheetsLoggingEnabled && userPreferences.sheetsSpreadsheetId) {
+      const sheetsLogging = resolveSheetsLogging(project.settings, userPreferences);
+      if (sheetsLogging.sheetsLoggingEnabled && sheetsLogging.sheetsSpreadsheetId) {
         const snippetIndices = selectedSnippets
           .map(s => activeChapter.snippets.findIndex(sn => sn.id === s.id))
           .filter(idx => idx >= 0);
@@ -1484,7 +1452,7 @@ export default function App() {
           responseTokens: ttsResult.responseTokens
         });
 
-        logGenerationEvent(payload, userPreferences).catch(err => {
+        logGenerationEvent(payload, sheetsLogging).catch(err => {
           console.warn("Async Sheets logging notification:", err);
         });
       }
@@ -1582,7 +1550,7 @@ export default function App() {
             <div className="flex items-center bg-slate-800 rounded-md p-1">
               <input 
                 type="file" 
-                accept=".json" 
+                accept=".abs,.json" 
                 className="hidden" 
                 ref={projectInputRef}
                 onChange={handleImportProject}
@@ -1590,7 +1558,7 @@ export default function App() {
               <button 
                 onClick={() => projectInputRef.current?.click()}
                 className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
-                title="Load Project"
+                title="Open Project (.abs or .json)"
               >
                 <FolderOpen className="w-4 h-4" />
                 <span className="hidden lg:inline">Proj.</span>
@@ -1598,11 +1566,14 @@ export default function App() {
               <div className="w-px h-4 bg-slate-700 mx-1"></div>
               <button 
                 onClick={handleExportProject}
-                className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium rounded transition-all duration-1000 ease-out ${saveFlash ? 'bg-emerald-500/25 text-emerald-400 font-semibold scale-105 shadow-md shadow-emerald-500/10' : 'text-slate-300 hover:bg-slate-700'}`}
-                title="Save Project"
+                disabled={isExportingSidecar}
+                className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium rounded transition-all duration-1000 ease-out disabled:opacity-60 ${saveFlash ? 'bg-emerald-500/25 text-emerald-400 font-semibold scale-105 shadow-md shadow-emerald-500/10' : 'text-slate-300 hover:bg-slate-700'}`}
+                title="Save Project (.abs)"
               >
-                <Save className="w-4 h-4" />
-                <span className="hidden lg:inline">Proj.</span>
+                <Save className={`w-4 h-4 ${isExportingSidecar ? 'animate-bounce text-indigo-400' : ''}`} />
+                <span className="hidden lg:inline">
+                  {isExportingSidecar ? (sidecarExportProgress ? `Saving (${sidecarExportProgress})` : 'Saving...') : 'Proj.'}
+                </span>
               </button>
             </div>
 
@@ -1618,22 +1589,10 @@ export default function App() {
               <button 
                 onClick={() => sidecarInputRef.current?.click()}
                 className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 rounded transition-colors"
-                title="Load Audio Sidecar"
+                title="Load v3 Audio Sidecar (.audio.json)"
               >
                 <FileAudio className="w-4 h-4" />
-                <span className="hidden lg:inline">Audio</span>
-              </button>
-              <div className="w-px h-4 bg-slate-700 mx-1"></div>
-              <button 
-                onClick={handleExportSidecar}
-                disabled={isExportingSidecar}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-60 rounded transition-colors"
-                title="Save Audio Sidecar"
-              >
-                <Download className={`w-4 h-4 ${isExportingSidecar ? 'animate-bounce text-indigo-400' : ''}`} />
-                <span className="hidden lg:inline">
-                  {isExportingSidecar ? (sidecarExportProgress ? `Exporting (${sidecarExportProgress})` : 'Exporting...') : 'Audio'}
-                </span>
+                <span className="hidden lg:inline">Audio (v3)</span>
               </button>
             </div>
 
@@ -2592,7 +2551,7 @@ export default function App() {
                 <RefreshCw className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-100 text-lg">Importing Audio Sidecar</h3>
+                <h3 className="font-semibold text-slate-100 text-lg">Importing Audio</h3>
                 <p className="text-xs text-slate-400">Streaming and saving audio data to IndexedDB...</p>
               </div>
             </div>

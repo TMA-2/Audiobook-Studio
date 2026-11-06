@@ -44,10 +44,6 @@ function parseMarkdownTable(lines: string[]): Speaker[] {
         speaker.style = cell;
       } else if (header.includes('role')) {
         speaker.role = cell;
-      } else if (header.includes('pace')) {
-        speaker.pace = cell;
-      } else if (header.includes('accent')) {
-        speaker.accent = cell;
       }
     });
 
@@ -59,9 +55,7 @@ function parseMarkdownTable(lines: string[]): Speaker[] {
         voice: speaker.voice || 'Zephyr',
         style: speaker.style || '',
         isNarrator: !!speaker.isNarrator,
-        role: speaker.role,
-        pace: speaker.pace,
-        accent: speaker.accent
+        role: speaker.role
       });
     }
   }
@@ -248,10 +242,6 @@ export function parseMarkdown(markdown: string, stripQuotes: boolean = true): Pr
               currentSpeaker.style = val;
             } else if (key.includes('role')) {
               currentSpeaker.role = val;
-            } else if (key.includes('pace') || key.includes('pacing')) {
-              currentSpeaker.pace = val;
-            } else if (key.includes('accent')) {
-              currentSpeaker.accent = val;
             } else if (key.includes('narrator')) {
               currentSpeaker.isNarrator = ['yes', 'true', '1', '[x]', 'x'].includes(val.toLowerCase());
             }

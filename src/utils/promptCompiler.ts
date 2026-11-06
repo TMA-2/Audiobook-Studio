@@ -185,8 +185,6 @@ export function compilePrompt(options: CompilePromptOptions): {
       spBlock = spBlock.replace(/\{speaker_voice\}/g, sp.voice);
       spBlock = spBlock.replace(/\{speaker_instructions\}/g, sp.style || "");
       spBlock = spBlock.replace(/\{speaker_style\}/g, sp.style || "");
-      spBlock = spBlock.replace(/\{speaker_pace\}/g, sp.pace || "Natural");
-      spBlock = spBlock.replace(/\{speaker_accent\}/g, sp.accent || "Neutral");
       return spBlock;
     }).join(isListItem ? '\n' : '\n\n');
 

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$comment": "Each item, e.g. Chapter, Snippet, Speaker, Scene, Generation, should be defined in definitions, and then referenced for greater readability.",
+  "title": "Audiobook Studio Project File",
+  "description": "This file holds the content of an Audiobook Studio project, including settings like model, API, title, chapters, speakers, their properties, and the snippets containing all the text.",
+  "required": [
+    "projectName",
+    "settings",
+    "chapters",
+    "speakers"
+  ],
+  "properties": {
+    "projectName": {
+      "type": "string",
+      "description": "The name of the project -- usually the title of the book."
+    },
+    "settings": {
+      "type": "object",
+      "description": "The settings for the project, including model, API, and other configuration options.",
+      "properties": {
+        "model": {
+          "type": "object",
+          "description": "The model used for text generation.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The display name of the model."
+            },
+            "id": {
+              "type": "string",
+              "description": "The internal model name used for API calls."
+            },
+            "description": {
+              "type": "string",
+              "description": "A brief description of the model."
+            }
+          }
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 2.0,
+          "default": 1.0,
+          "description": "The temperature setting for the model, which controls the expressiveness of the output. A higher value results in more expressive output at the expense of stability."
+        },
+        "encoding": {
+          "type": "string",
+          "description": "The preferred output audio encoding.",
+          "default": "M4B",
+          "enum": [
+            "WAV",
+            "MP3",
+            "OPUS",
+            "M4A",
+            "M4B",
+            "FLAC"
+          ]
+        },
+        "sampleRate": {
+          "type": "number",
+          "description": "The preferred output audio sample rate.",
+          "default": 24000,
+          "enum": [
+            22050,
+            24000,
+            44100,
+            48000
+          ]
+        },
+        "promptTemplate": {
+          "type": "string",
+          "description": "The prompt template used for text generation, i.e. the text that will be sent to the TTS model. This template can include placeholders for dynamic content:\n{project_title}, {chapter_title}, {speaker_name}, {speaker_role}, {speaker_voice}, {speaker_instructions}, {scene_context}, {snippet_text}",
+          "default": "# {project_title}\n## {chapter_title}\n\n## Speakers\n\n### {speaker_name}\n- Role: {speaker_role}\n- Voice: {speaker_voice}\n- Style: {speaker_instructions}\n\n## Scene Context: {scene_name}\n{scene_context}\n\n## TRANSCRIPT\n{snippet_text}"
+        },
+        "generationOption": {
+          "type": "string",
+          "description": "The generation option for the project, which determines how snippets are generated.",
+          "default": "combined",
+          "enum": [
+            "combined",
+            "individual"
+          ]
+        }
+      },
+      "required": [
+        "model",
+        "promptTemplate"
+      ]
+    },
+    "chapters": {
+      "type": "array",
+      "description": "An array of chapters in the project, each containing snippets of text.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$comment": "GUID without braces.",
+            "type": "string",
+            "description": "A unique identifier for the chapter."
+          },
+          "name": {
+            "type": "string",
+            "description": "The title of the chapter."
+          },
+          "order": {
+            "type": "integer",
+            "description": "The order of the chapter in the project."
+          },
+          "globalSpeaker": {
+            "$comment": "GUID without braces.",
+            "type": "string",
+            "description": "The global speaker for the chapter, which will be used for all snippets in the chapter with a null speaker setting. Basically, the default speaker / narrator."
+          },
+          "collapsed": {
+            "type": "boolean",
+            "description": "Whether the chapter is collapsed in the UI."
+          },
+          "content": {
+            "type": "array",
+            "description": "An array of objects representing the chapter's snippets.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$comment": "GUID without braces.",
+                  "type": "string",
+                  "description": "A unique identifier for the snippet."
+                },
+                "speaker": {
+                  "$comment": "GUID without braces.",
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "description": "The speaker for the snippet. If null, the chapter's global speaker will be used."
+                    },
+                    {
+                      "type": "null",
+                      "description": "If null, the chapter's global speaker will be used."
+                    }
+                  ],
+                  "description": "A unique identifier for the snippet."
+                },
+                "sceneId": {
+                  "$comment": "GUID without braces.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A unique identifier for the scene used in this snippet."
+                },
+                "order": {
+                  "type": "integer",
+                  "description": "The order of the snippet in the chapter."
+                },
+                "collapsed": {
+                  "type": "boolean",
+                  "description": "Whether the snippet is collapsed in the UI."
+                },
+                "activeGenerationId": {
+                  "$comment": "GUID without braces.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The ID of the active generation for the snippet."
+                },
+                "text": {
+                  "type": "array",
+                  "description": "The text content of the snippet. Each string represents a separate line.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0-testing] - 2026-11-05
+
+### Added
+- `.abs` project format (zip, uncompressed entries): `project.json` plus `generations/<id>.<ext>` holding raw audio. Save Project writes it; Open Project reads it. `The Maxine Maxim - Teacher's Pet` went from a 320 MB sidecar to a 58 MB `.abs`.
+- `src/utils/absArchive.ts`: `writeAbs()` streams the archive in chunks from Blobs, `readAbs()` reads it with a progress callback, `audioExtension()` maps mime types to extensions. Uses `fflate`.
+- `src/utils/projectFile.ts`: `projectToFile()`, `fileToProject()`, `collectGenerationIds()`, `resolveSheetsLogging()`, `PROJECT_FILE_VERSION`. Project JSON carries `version: 4`; files without a version read as v3, and newer versions are rejected.
+- `src/utils/audioBlob.ts` (`base64ToBlob`, `blobToBase64`) and `saveAudioBlob()` / `getAudioBlob()` in `dbService.ts`.
+- Open Project shows the import progress dialog for `.abs` files.
+- Speaker `role` is saved and loaded.
+- Project settings are saved and loaded for `temperature`, `apiType`, `generationOption`, `concatenationOption`, and the three `sheetsLogging*` keys.
+- Sheets logging uses the project's sheet when it has one (logging defaults on unless the project disables it) and falls back to the global preference.
+- Tests: `projectFile`, `absArchive`, `audioBlob`, `markdownParserSpeakers`.
+
+### Changed
+- IndexedDB stores audio as a Blob. Records saved as base64 still read.
+- Project settings are written through an allowlist; `apiKey`, `bitRate` and `audioExportFormat` are never written.
+- Open Project accepts `.abs` and v3 `.json`. The v3 `.audio.json` loader is now labelled "Audio (v3)".
+- `SidecarExporter` is no longer called by the app and is kept for now.
+
+### Removed
+- The Save Audio Sidecar button.
+- `pace` and `accent` from speakers, the markdown parser, and `{speaker_pace}` / `{speaker_accent}` in the prompt compiler.
+- Unused `Speaker` fields `pacing`, `pitch`, `emotion`, `customInstructions`, `model`, and their reads in `server.ts`.
+
+### Fixed
+- Speaker `role` was lost on reload because export and import skipped it.
 ## [0.13.3] - 2026-10-28
 
 ### Fixed
@@ -315,7 +341,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the project in `package.json` to "Audiobook Production Studio".
 - Standardized the Vite/Express full-stack dev and build system using `tsx` for high-performance live reloading and `esbuild` to compile a bundled, optimized CommonJS server at `dist/server.cjs`.
 
-[unreleased]: https://github.com/tma-2/audiobook-studio/compare/v0.5.3...HEAD
+[unreleased]: https://github.com/tma-2/audiobook-studio/compare/v1.13.0-testing...HEAD
 [0.5.3]: https://github.com/tma-2/audiobook-studio/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/tma-2/audiobook-studio/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/tma-2/audiobook-studio/compare/v0.5.0...v0.5.1

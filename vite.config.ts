@@ -24,7 +24,7 @@ export default defineConfig(() => ({
     // Also ignore runtime-written data/log directories so writes from the server
     // (project saves, TTS request logs) don't trigger a reload mid-generation.
     watch: process.env.DISABLE_HMR === 'true' ? null : {
-      ignored: ['**/data/**', '**/logs/**'],
+      ignored: ["**/{data,logs,tests,NOTES}/**", "**/*.md"],
     },
   },
 }));

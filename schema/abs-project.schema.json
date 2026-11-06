@@ -1,0 +1,506 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Audiobook Studio Project File",
+  "description": "This file holds the content of an Audiobook Studio project, including settings like model, API, title, chapters, speakers, their properties, and the snippets containing all the text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "projectName",
+    "settings",
+    "chapters",
+    "speakers"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL of the schema this file validates against."
+    },
+    "version": {
+      "type": "integer",
+      "description": "The ABS project schema version.",
+      "default": 4,
+      "minimum": 1,
+      "maximum": 4
+    },
+    "projectName": {
+      "type": "string",
+      "description": "The name of the project -- usually the title of the book."
+    },
+    "settings": {
+      "$ref": "#/definitions/settings"
+    },
+    "speakers": {
+      "type": "array",
+      "description": "The speakers (characters and narrators) available to the project's chapters and snippets.",
+      "items": {
+        "$ref": "#/definitions/speaker"
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "description": "Reusable scene descriptions that snippets reference to give the TTS model setting and mood context.",
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/scene"
+      }
+    },
+    "chapters": {
+      "type": "array",
+      "description": "An array of chapters in the project, each containing snippets of text.",
+      "items": {
+        "$ref": "#/definitions/chapter"
+      }
+    }
+  },
+  "definitions": {
+    "guid": {
+      "type": "string",
+      "description": "A GUID without braces.",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "nullableGuid": {
+      "description": "A GUID without braces, or null.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/guid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "settings": {
+      "type": "object",
+      "description": "The settings for the project, including model, API, and other configuration options.",
+      "additionalProperties": false,
+      "required": [
+        "apiType",
+        "model",
+        "promptTemplate"
+      ],
+      "properties": {
+        "apiType": {
+          "type": "string",
+          "description": "The API type used for text generation.",
+          "default": "generateContent",
+          "enum": [
+            "Interactions",
+            "generateContent"
+          ]
+        },
+        "model": {
+          "type": "object",
+          "description": "The model used for text generation.",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The display name of the model."
+            },
+            "id": {
+              "type": "string",
+              "description": "The internal model name used for API calls."
+            },
+            "description": {
+              "type": "string",
+              "description": "A brief description of the model."
+            }
+          }
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 2.0,
+          "default": 1.0,
+          "description": "The temperature setting for the model, which controls the expressiveness of the output. A higher value results in more expressive output at the expense of stability."
+        },
+        "encoding": {
+          "type": "string",
+          "description": "The preferred output audio encoding.",
+          "default": "M4B",
+          "enum": [
+            "WAV",
+            "MP3",
+            "OPUS",
+            "M4A",
+            "M4B",
+            "FLAC"
+          ]
+        },
+        "sampleRate": {
+          "oneOf": [
+            {
+              "default": 24000,
+              "type": "integer"
+            },
+            {
+              "default": "24000",
+              "type": "string"
+            }
+          ],
+          "description": "The preferred output audio sample rate.",
+          "enum": [
+            22050,
+            24000,
+            44100,
+            48000
+          ]
+        },
+        "promptTemplate": {
+          "type": "string",
+          "description": "The prompt template used for text generation, i.e. the text that will be sent to the TTS model. This template can include placeholders for dynamic content:\n{project_title}, {chapter_title}, {speaker_name}, {speaker_role}, {speaker_voice}, {speaker_instructions}, {scene_name}, {scene_context}, {snippet_text}",
+          "default": "# {project_title}\n## {chapter_title}\n\n## Speakers\n\n### {speaker_name}\n- Role: {speaker_role}\n- Voice: {speaker_voice}\n- Style: {speaker_instructions}\n\n## Scene Context: {scene_name}\n{scene_context}\n\n## TRANSCRIPT\n{snippet_text}"
+        },
+        "generationOption": {
+          "type": "string",
+          "description": "The generation option for the project, which determines how snippets are generated.",
+          "default": "combined",
+          "enum": [
+            "combined",
+            "individual"
+          ]
+        }
+      }
+    },
+    "speaker": {
+      "type": "object",
+      "description": "A character or narrator, with the voice and acting instructions sent to the TTS model.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order",
+        "name",
+        "voice"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A unique identifier for the speaker."
+        },
+        "voice_id": {
+          "type": "string",
+          "description": "For Gemini 3.8 TTS, the persistent voice this speaker and any associated snippets will use. Potentially overrides Name, Voice, and Instructions... TBD."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The order of the speaker in the project's speaker list."
+        },
+        "name": {
+          "type": "string",
+          "description": "The display name of the speaker."
+        },
+        "voice": {
+          "type": "string",
+          "description": "The name of the Gemini prebuilt voice used for this speaker.",
+          "default": "Puck",
+          "examples": [
+            "Zephyr",
+            "Puck",
+            "Charon",
+            "Kore",
+            "Fenrir",
+            "Aoede"
+          ]
+        },
+        "instructions": {
+          "type": "string",
+          "default": "",
+          "description": "Free-text character and delivery notes sent to the model as the speaker's style."
+        },
+        "isNarrator": {
+          "type": "boolean",
+          "default": false,
+          "$comment": "Draft 07 has no 'deprecated' keyword; it is marked in the description only.",
+          "description": "DEPRECATED. Marks a speaker as a default/narrator. Multiple speakers may be marked and none are treated differently; the default speaker for unassigned snippets is the chapter's globalSpeaker."
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "description": "A setting description that gives the TTS model context for the snippets that reference it.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "order"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A unique identifier for the scene."
+        },
+        "name": {
+          "type": "string",
+          "description": "The display name of the scene."
+        },
+        "description": {
+          "type": "string",
+          "description": "The scene context text sent to the model. Lines are separated by \\n."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The order of the scene in the project's scene list."
+        }
+      }
+    },
+    "wordTimestamp": {
+      "type": "object",
+      "description": "A timestamp for a single word in an audio snippet.",
+      "additionalProperties": false,
+      "required": [
+        "word",
+        "startMs",
+        "endMs"
+      ],
+      "properties": {
+        "word": {
+          "type": "string",
+          "description": "The word spoken in the audio snippet."
+        },
+        "startMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The start time of the word in milliseconds, relative to the start of the audio snippet."
+        },
+        "endMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The end time of the word in milliseconds, relative to the start of the audio snippet."
+        }
+      }
+    },
+    "audioSnippet": {
+      "type": "object",
+      "description": "A snippet of audio generated for a snippet, with timestamps for each word.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "snippetId",
+        "generationId",
+        "startMs",
+        "endMs",
+        "words"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A deterministic UUIDv5 for the audio snippet taken from the generationId as the namespace and snippetId as the name."
+        },
+        "snippetId": {
+          "$ref": "#/definitions/guid",
+          "description": "The ID of the snippet this audio snippet belongs to."
+        },
+        "generationId": {
+          "$ref": "#/definitions/guid",
+          "description": "The ID of the generation this audio snippet belongs to."
+        },
+        "startMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The start time of the audio snippet in milliseconds, relative to the start of the generation's audio."
+        },
+        "endMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The end time of the audio snippet in milliseconds, relative to the start of the generation's audio."
+        },
+        "words": {
+          "type": "array",
+          "description": "An array of word timestamps for the audio snippet.",
+          "items": {
+            "$ref": "#/definitions/wordTimestamp"
+          }
+        }
+      }
+    },
+    "generation": {
+      "type": "object",
+      "description": "One audio generation result for a snippet, recording the inputs used to produce it.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "snippetId",
+        "speakerId",
+        "timestamp",
+        "model",
+        "text",
+        "audioMimeType"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A unique identifier for the generation."
+        },
+        "snippetId": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/guid"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/guid"
+              }
+            }
+          ],
+          "description": "The ID(s) of the snippet this generation belongs to."
+        },
+        "speakerId": {
+          "$ref": "#/definitions/guid",
+          "description": "The ID of the speaker that was resolved for this generation (the snippet's speaker, or the chapter's global speaker when the snippet's speaker is null)."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the generation was created, as an ISO 8601 UTC timestamp."
+        },
+        "model": {
+          "type": "string",
+          "description": "The ID of the model used for the generation."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text sent to the model, including any inline delivery tags such as [whispering]."
+        },
+        "audioMimeType": {
+          "type": "string",
+          "description": "The MIME type of the returned audio, including parameters.",
+          "examples": [
+            "audio/l16; rate=24000; channels=1"
+          ]
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The length of the generated audio in seconds."
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 2.0,
+          "description": "The temperature used for the generation."
+        }
+      }
+    },
+    "snippet": {
+      "type": "object",
+      "description": "A block of text in a chapter, assigned to a speaker and scene, with its generation history.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A unique identifier for the snippet."
+        },
+        "speaker": {
+          "$ref": "#/definitions/nullableGuid",
+          "default": null,
+          "description": "The ID of the speaker for the snippet. If null, the chapter's global speaker is used."
+        },
+        "sceneId": {
+          "$ref": "#/definitions/nullableGuid",
+          "default": null,
+          "description": "The ID of the scene used in this snippet, or null for none."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The order of the snippet in the chapter."
+        },
+        "collapsed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the snippet is collapsed in the UI."
+        },
+        "activeGenerationId": {
+          "$ref": "#/definitions/nullableGuid",
+          "default": null,
+          "description": "The ID of the generation selected as the snippet's audio, or null if none."
+        },
+        "text": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "The text content of the snippet. Each string represents a separate line."
+        },
+        "audioSnippets": {
+          "type": "array",
+          "default": [],
+          "description": "The audio snippets generated for the snippet, with timestamps for each word.",
+          "items": {
+            "$ref": "#/definitions/audioSnippet"
+          }
+        },
+        "generations": {
+          "type": "array",
+          "default": [],
+          "description": "The generation history for the snippet.",
+          "items": {
+            "$ref": "#/definitions/generation"
+          }
+        }
+      }
+    },
+    "chapter": {
+      "type": "object",
+      "description": "A chapter of the project, containing ordered snippets.",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "order",
+        "globalSpeaker",
+        "content"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/guid",
+          "description": "A unique identifier for the chapter."
+        },
+        "name": {
+          "type": "string",
+          "description": "The title of the chapter."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The order of the chapter in the project."
+        },
+        "globalSpeaker": {
+          "$ref": "#/definitions/guid",
+          "description": "The global speaker for the chapter, which will be used for all snippets in the chapter with a null speaker setting. Basically, the default speaker / narrator."
+        },
+        "collapsed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the chapter is collapsed in the UI."
+        },
+        "content": {
+          "type": "array",
+          "description": "An array of objects representing the chapter's snippets.",
+          "items": {
+            "$ref": "#/definitions/snippet"
+          }
+        }
+      }
+    }
+  }
+}
